@@ -46,6 +46,19 @@ NestQuant W4 对 RTN W4 是首要同范围比较。W4A4KV4 对比 W4-only 方法
 
 原文对若干 tokenizer、BOS/EOS 和尾段细节没有完整展开；上表中项目补充约定应在报告中作为实现约定，而非伪称论文逐字规定。
 
+## 共享校准窗口协议
+
+NestQuant Hessian 和 QuaRot GPTQ 的正式对照统一读取 [`configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json`](../configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json)：
+
+- split 为 WikiText-2 `train`，数据 revision 为 `b08601e04326c79dfdd32d625aee71d232d685c3`；
+- 以 `\n\n` 连接原始 text 行，`add_special_tokens=false`，不添加边界 token；
+- 使用 Python `random.Random(58).randint` 有放回选取 128 个长度为 2048 的窗口；
+- train token 总数为 2,436,213，语料 token 哈希为 `c18bf7b2f38da797fb55963d93df4b2f15d6177436821419868f436c4a60aa67`；
+- 262,144 个选中 token 的总哈希为 `358a77b403d372a11957df15dbf46ef3e6f54025d315eaf3514c40bd561d90bb`；
+- 清单同时保存 128 个起始位置和逐窗口哈希，加载端必须重新计算并验证，不能只信任 JSON 中的声明。
+
+QuaRot 既有四个 128-window 正式结果的起始位置与总哈希已和该清单完全一致。NestQuant 采集端已用第一个窗口完成真实 Llama-3.2-1B `q_proj` Hessian smoke；sidecar 记录窗口起点 826936、窗口哈希 `e1996b5991a2ad7c28ad3276a09b5bbc20ef2a8b0c6ea01dcf54816eaf6b393c` 和清单哈希。单窗口 smoke 只验证数据路径，不能替代 128-window 正式校准。
+
 ## 必须保存的结果
 
 每次运行都生成唯一 `run_id` 和 JSON manifest，至少包含：commit、配置哈希、模型/tokenizer/data revision、数据文件哈希、seed、Python/PyTorch/CUDA/GPU、量化范围、q/k/beta、校准数据来源、chunk/token 数、NLL/PPL、峰值显存 allocated/reserved、耗时、原始日志位置、协议偏差和 `result_status`。

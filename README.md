@@ -65,7 +65,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 83 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 86 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合、共享校准清单和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
@@ -78,6 +78,13 @@ python scripts/evaluate_llama_wikitext_ppl.py --device cuda --offline
 ```
 
 一个窗口的 smoke 可增加 `--limit-chunks 1`，但不能当作完整 PPL。原始运行产物默认写入被 Git 忽略的 `results/raw/`。
+
+正式校准窗口固定在 [`configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json`](configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json)。该文件保存 128 个窗口的起点、逐窗口 token 哈希和总哈希；NestQuant Hessian 与 QuaRot 兼容入口都支持 `--calibration-manifest`，并在运行前验证模型、数据 revision、tokenization 和完整 train token 流。重新生成时应使用一个不存在的输出路径，因为生成器会拒绝静默覆盖正式清单：
+
+```bash
+python scripts/create_calibration_manifest.py --offline \
+  --output configs/calibration/calibration_candidate.json
+```
 
 QuaRot 兼容移植实验入口：
 
@@ -98,7 +105,7 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         83 项分层单元测试
+tests/unit/         86 项分层单元测试
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁

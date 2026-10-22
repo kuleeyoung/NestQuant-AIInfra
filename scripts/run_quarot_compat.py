@@ -29,6 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--w-bits", type=int, choices=(4, 16), default=4)
     parser.add_argument("--seed", type=int, default=58)
     parser.add_argument("--context-length", type=int, default=2048)
+    parser.add_argument("--calibration-manifest", type=Path,
+                        help="shared versioned calibration-window manifest")
     parser.add_argument("--limit-chunks", type=int)
     parser.add_argument("--a4", action="store_true")
     parser.add_argument("--kv4", action="store_true")
@@ -40,13 +42,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def tensor_digest(tensors) -> str:
-    digest = hashlib.sha256()
-    for tensor in tensors:
-        digest.update(tensor.to(dtype=torch.int64, device="cpu").numpy().tobytes())
-    return digest.hexdigest()
-
-
 args = parse_args()
 if args.nsamples < 1 or args.context_length < 2:
     raise ValueError("nsamples and context length must be positive")
@@ -55,6 +50,9 @@ sys.path[:0] = [str(args.quarot_root / "fake_quant"), str(args.project_root)]
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
+from nestquant.evaluation.calibration_manifest import (
+    load_calibration_manifest, token_ids_sha256, validate_calibration_manifest,
+)
 from nestquant.evaluation.perplexity import evaluate_perplexity, tokenize_corpus
 import gptq_utils
 import hadamard_utils
@@ -94,15 +92,44 @@ train_ids = tokenizer(
     return_tensors="pt",
 ).input_ids
 
-rng = random.Random(args.seed)
-starts = [
-    rng.randint(0, train_ids.shape[1] - args.context_length - 1)
-    for _ in range(args.nsamples)
-]
+calibration_manifest = None
+calibration_manifest_sha256 = None
+if args.calibration_manifest is not None:
+    calibration_manifest = load_calibration_manifest(args.calibration_manifest)
+    calibration_manifest_sha256 = hashlib.sha256(
+        args.calibration_manifest.read_bytes()
+    ).hexdigest()
+    windows = validate_calibration_manifest(
+        calibration_manifest,
+        train_ids[0].tolist(),
+        model_id=MODEL_ID,
+        model_revision=MODEL_REVISION,
+        dataset_id=DATASET_ID,
+        dataset_config=DATASET_CONFIG,
+        dataset_revision=DATASET_REVISION,
+    )
+    manifest_selection = calibration_manifest["selection"]
+    if manifest_selection["context_length"] != args.context_length:
+        raise ValueError("calibration manifest context length disagrees with CLI")
+    if manifest_selection["seed"] != args.seed:
+        raise ValueError("calibration manifest seed disagrees with CLI")
+    if args.nsamples > len(windows):
+        raise ValueError("--nsamples exceeds calibration manifest sample count")
+    windows = windows[:args.nsamples]
+    starts = manifest_selection["start_indices"][:args.nsamples]
+else:
+    rng = random.Random(args.seed)
+    starts = [
+        rng.randint(0, train_ids.shape[1] - args.context_length - 1)
+        for _ in range(args.nsamples)
+    ]
+    windows = tuple(
+        tuple(train_ids[0, start:start + args.context_length].tolist()) for start in starts
+    )
 calibration = []
 calibration_inputs = []
-for start in starts:
-    inp = train_ids[:, start:start + args.context_length]
+for window in windows:
+    inp = torch.tensor(window, dtype=torch.long).unsqueeze(0)
     target = inp.clone()
     target[:, :-1] = -100
     calibration.append((inp, target))
@@ -198,7 +225,18 @@ payload = {
         "seed": args.seed, "context_length": args.context_length,
         "calibration_samples": args.nsamples,
         "calibration_start_indices": starts,
-        "calibration_token_ids_sha256": tensor_digest(calibration_inputs),
+        "calibration_token_ids_sha256": token_ids_sha256(
+            tuple(value for window in windows for value in window)
+        ),
+        "calibration_manifest": None if args.calibration_manifest is None else {
+            "path": str(args.calibration_manifest),
+            "sha256": calibration_manifest_sha256,
+            "schema_version": calibration_manifest["schema_version"],
+            "available_samples": calibration_manifest["selection"]["sample_count"],
+            "full_selected_token_ids_sha256": calibration_manifest[
+                "selected_windows"
+            ]["token_ids_sha256"],
+        },
         "test_token_ids_sha256": corpus.token_ids_sha256,
         "w_bits": args.w_bits,
         "w_method": "GPTQ" if args.w_bits == 4 else "none",

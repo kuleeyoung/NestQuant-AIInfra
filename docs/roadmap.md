@@ -25,6 +25,10 @@
 - Completed A4 and W4A4KV4 quality simulation: batch-4 W4/W4KV4/W4A4KV4 PPL is 10.276601/10.732014/11.578171. QA-LDLQ is now implemented; its default epsilon constant 155 degraded W4 and W4A4KV4 quality, so epsilon/Hessian-scale calibration is the next algorithm question.
 - train64 block-LDLQ 已完成 NQMC 导出和无 Hessian 独立回载：文件 659,281,364 B，有效码率 4.267043 bit/量化参数，三条执行路径 PPL 精确一致为 10.276132955046；见 [LDLQ NQMC 报告](../results/llama32_1b_w4_ldlq_nqmc.md)。
 
+## Shared calibration protocol (2026-10-22)
+
+The versioned 128-window WikiText-2 train calibration manifest is now implemented and consumed by both the NestQuant Hessian collector and the QuaRot compatibility runner. It records model/data revisions, tokenization, seed, every start index, every window hash, the full train-token hash, and the combined selected-token hash. The combined hash `358a77b4...90bb` and all 128 starts match the existing formal QuaRot runs. A real one-window Llama-3.2-1B Hessian smoke completed successfully. The next costly step is full all-layer 128-window Hessian recalibration; prior train64 results remain valid historical results but are not yet a same-calibration comparison.
+
 ## QA-LDLQ stage result (2026-10-22)
 
 Implemented the public QA weight adjustment, 20-train-chunk activation second-moment collection, QA NQMC export, and calibration-free reload. With the local covariance-scale Hessian and relative damping 0.01, the upstream default `epsilon_constant=155` degraded W4 PPL from 10.276601 to 11.053594 and W4A4KV4 from 11.578171 to 12.386133. This negative result requires an epsilon/Hessian-scale ablation before any claim of reproducing the paper QA gain. See [QA-LDLQ implementation](qa_ldlq.md) and [result](../results/llama32_1b_qa_ldlq_ablation.md).

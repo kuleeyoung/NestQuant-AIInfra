@@ -28,7 +28,8 @@ def layer_modules(start: int, stop: int) -> list[str]:
 
 
 def run_collection(
-    modules: list[str], output: Path, chunks: int, offline: bool
+    modules: list[str], output: Path, chunks: int, offline: bool,
+    calibration_manifest: Path | None,
 ) -> None:
     command = [
         sys.executable,
@@ -42,6 +43,8 @@ def run_collection(
     ]
     if offline:
         command.append("--offline")
+    if calibration_manifest is not None:
+        command.extend(["--calibration-manifest", str(calibration_manifest)])
     print(f"Collecting {len(modules)} unique inputs -> {output}", flush=True)
     subprocess.run(command, cwd=PROJECT_ROOT, check=True)
 
@@ -53,6 +56,8 @@ def main() -> None:
     parser.add_argument("--layers-per-group", type=int, default=4)
     parser.add_argument("--output-dir", type=Path, default=Path("results/raw/calibration"))
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--calibration-manifest", type=Path,
+                        help="shared versioned calibration-window manifest")
     parser.add_argument(
         "--overwrite", action="store_true", help="replace complete tensor/manifest pairs"
     )
@@ -81,7 +86,9 @@ def main() -> None:
                 )
             output.unlink(missing_ok=True)
             manifest.unlink(missing_ok=True)
-        run_collection(modules, output, args.chunks, args.offline)
+        run_collection(
+            modules, output, args.chunks, args.offline, args.calibration_manifest
+        )
 
 
 if __name__ == "__main__":
