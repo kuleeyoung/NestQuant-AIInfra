@@ -1,0 +1,51 @@
+{
+  "source": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "config_sha256": "bfb5d39c327ee5c3a65e3574596ff30b052a445cfc59a25bdf3b4c0c5a44f4d2",
+    "tie_word_embeddings": true,
+    "manifest": "llama32_1b_wikitext2_full_20261014.json",
+    "run_id": "20261014T041113467349Z"
+  },
+  "shape_audit": {
+    "linear_modules": 113,
+    "quantized_unique_weight_parameters": 1235746816,
+    "output_rows": 505088,
+    "e8_blocks": 154468352
+  },
+  "assumptions": {
+    "rtn": "4-bit packed codes, FP32 scale per group, no alignment/container headers",
+    "nestquant": "4-bit fixed-width q=14 residues, 2-bit beta ID per E8 block, FP32 row norms, 4 FP32 beta values per linear layer, 32-bit q and 64-bit seed; no alignment/container headers"
+  },
+  "rtn_w4": {
+    "status": "estimate_only_no_packed_tensor_written",
+    "assumptions": "4-bit packed signed codes; FP32 scale per group; ignores tensor padding and container headers",
+    "code_bits": 4942987264,
+    "scale_metadata_bits": 308936704,
+    "other_metadata_bits": 0,
+    "total_bits": 5251923968,
+    "estimated_bytes": 656490496,
+    "effective_bits_per_quantized_parameter": 4.25
+  },
+  "nestquant_w4_fixed_width": {
+    "status": "estimate_only_no_packed_tensor_written",
+    "assumptions": "q-ary residues fixed-width packed at 4 bits each; beta IDs fixed-width packed; FP32 row norms and per-layer beta tables; 32-bit q and 64-bit dither seed; ignores alignment and container headers",
+    "residue_code_bits": 4942987264,
+    "beta_index_bits": 308936704,
+    "row_norm_metadata_bits": 16162816,
+    "beta_table_metadata_bits": 14464,
+    "run_metadata_bits": 96,
+    "total_bits": 5268101344,
+    "estimated_bytes": 658512668,
+    "effective_bits_per_quantized_parameter": 4.263091173524011,
+    "ideal_arithmetic_code_bits_per_residue": 3.807354922057604,
+    "note": "Entropy/arithmetic coding of q-ary residues could reduce code payload; no such coder exists in this project yet."
+  },
+  "nestquant_w4_ideal_arithmetic_code_scenario": {
+    "status": "theoretical_scenario_not_implemented",
+    "residue_code_bits": 4704926722.314612,
+    "total_bits": 5030040802.314612,
+    "estimated_bytes": 628755101,
+    "effective_bits_per_quantized_parameter": 4.070446095581615
+  }
+}

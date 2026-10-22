@@ -1,0 +1,142 @@
+{
+  "schema_version": 2,
+  "status": "verified_local_result",
+  "comparison": "Llama-3.2-1B NestQuant W4 rotation x block-LDLQ ablation",
+  "protocol": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dataset_id": "Salesforce/wikitext",
+    "dataset_config": "wikitext-2-raw-v1",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "context_length": 2048,
+    "seed": 58,
+    "q": 14,
+    "beta_coefficients_project_scale": [
+      3.5,
+      4.5,
+      6.0,
+      14.5,
+      25.0,
+      40.0,
+      50.0
+    ],
+    "selected_beta_count": 4,
+    "rows_per_chunk": 512,
+    "model_dtype": "bfloat16",
+    "logit_loss_dtype": "float32",
+    "quantization_scope": "torch.nn.Linear weights only; BF16 compute after dequantization",
+    "evaluation_split": "test",
+    "test_token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+    "predicted_token_count": 288627,
+    "nestquant_python_source_sha256": "d499e68331017406b67bed05d2f2f6f1ce7b9f351455bb301db77e2620dc89c1",
+    "rotation_seeds": [
+      123,
+      124
+    ],
+    "ldlq_calibration_chunks": 64,
+    "ldlq_calibration_token_ids_sha256": "7dcba79b76b0e185ab48d7e27697db01da6345122b6fd0f000a3d64ae9229db3",
+    "ldlq_relative_damp": 0.01
+  },
+  "measurements": {
+    "bf16": {
+      "run_id": "20261021T035922521862Z",
+      "perplexity": 9.757044668408586,
+      "mean_nll_per_predicted_token": 2.2779895542037405,
+      "predicted_token_count": 288627,
+      "elapsed_seconds": 17.765075300005265,
+      "source": "results\\raw\\llama32_1b_bf16_rotation_ldlq_current_source_20261021.json"
+    },
+    "ordinary_w4": {
+      "run_id": "20261021T040000072785Z",
+      "perplexity": 11.202577129778936,
+      "mean_nll_per_predicted_token": 2.4161438527050225,
+      "predicted_token_count": 288627,
+      "elapsed_seconds": 113.34601139998995,
+      "source": "results\\raw\\llama32_1b_no_rotation_current_source_20261021.json"
+    },
+    "rotation_seed123": {
+      "run_id": "20261021T040225022172Z",
+      "perplexity": 11.004825062075923,
+      "mean_nll_per_predicted_token": 2.398333818629991,
+      "predicted_token_count": 288627,
+      "elapsed_seconds": 83.94910620000155,
+      "source": "results\\raw\\llama32_1b_rotation123_current_source_v2_20261021.json"
+    },
+    "rotation_seed124": {
+      "run_id": "20261021T045044953763Z",
+      "perplexity": 11.147938273023643,
+      "mean_nll_per_predicted_token": 2.411254572559489,
+      "predicted_token_count": 288627,
+      "elapsed_seconds": 239.90488640000694,
+      "source": "results\\raw\\llama32_1b_rotation124_current_source_v2_20261021.json"
+    },
+    "ldlq_only": {
+      "run_id": "20261021T040418936136Z",
+      "perplexity": 10.276132955046204,
+      "mean_nll_per_predicted_token": 2.3298240175685887,
+      "predicted_token_count": 288627,
+      "elapsed_seconds": 729.3445644000021,
+      "source": "results\\raw\\llama32_1b_ldlq_train64_current_source_v2_20261021.json"
+    },
+    "rotation123_plus_ldlq": {
+      "run_id": "20261021T034754960201Z",
+      "perplexity": 10.136665779354745,
+      "mean_nll_per_predicted_token": 2.3161591254862777,
+      "predicted_token_count": 288627,
+      "elapsed_seconds": 639.1899533000105,
+      "source": "results\\raw\\llama32_1b_rotation123_ldlq_train64_full_20261021.json"
+    },
+    "rotation124_plus_ldlq": {
+      "run_id": "20261021T041940278062Z",
+      "perplexity": 10.121536088107312,
+      "mean_nll_per_predicted_token": 2.314665439703166,
+      "predicted_token_count": 288627,
+      "elapsed_seconds": 1787.173078500011,
+      "source": "results\\raw\\llama32_1b_rotation124_ldlq_train64_full_20261021.json"
+    }
+  },
+  "derived": {
+    "ldlq_ppl_reduction_without_rotation": 0.9264441747327314,
+    "by_rotation_seed": {
+      "123": {
+        "rotation_ppl_reduction_without_ldlq": 0.19775206770301246,
+        "rotation_ppl_reduction_after_ldlq": 0.1394671756914594,
+        "ldlq_ppl_reduction_after_rotation": 0.8681592827211784,
+        "combined_ppl_reduction_vs_ordinary_w4": 1.0659113504241908,
+        "combined_remaining_ppl_gap_to_bf16": 0.37962111094615913,
+        "combined_bf16_gap_closed_percent": 73.73831988620427,
+        "additive_expected_ppl": 10.078380887343192,
+        "interaction_ppl_above_additive_expectation": 0.05828489201155307
+      },
+      "124": {
+        "rotation_ppl_reduction_without_ldlq": 0.05463885675529312,
+        "rotation_ppl_reduction_after_ldlq": 0.15459686693889196,
+        "ldlq_ppl_reduction_after_rotation": 1.0264021849163303,
+        "combined_ppl_reduction_vs_ordinary_w4": 1.0810410416716234,
+        "combined_remaining_ppl_gap_to_bf16": 0.36449141969872656,
+        "combined_bf16_gap_closed_percent": 74.78497166689759,
+        "additive_expected_ppl": 10.221494098290911,
+        "interaction_ppl_above_additive_expectation": -0.09995801018359884
+      }
+    },
+    "two_seed_combined_ppl_mean": 10.129100933731028,
+    "two_seed_combined_ppl_sample_std": 0.010698307278318329,
+    "two_seed_rotation_gain_after_ldlq_mean": 0.14703202131517568,
+    "two_seed_rotation_gain_after_ldlq_min": 0.1394671756914594,
+    "two_seed_rotation_gain_after_ldlq_max": 0.15459686693889196
+  },
+  "layer0_qproj_smoke": {
+    "source": "results\\raw\\layer0_qproj_rotation123_ldlq_train64_smoke.json",
+    "rotation_only_hessian_proxy_loss": 1.814436912536621,
+    "rotation_plus_ldlq_hessian_proxy_loss": 0.3927896320819855,
+    "proxy_loss_reduction_fraction": 0.783519818535406,
+    "weight_mse_ratio_ldlq_over_rotation_only": 1.828475584082445
+  },
+  "limitations": [
+    "This combines the project's per-Linear signed-Hadamard weight-space ablation with block-LDLQ; it is not the paper's complete globally fused rotation graph.",
+    "The combined result was repeated with only two preselected rotation seeds; this is a robustness check, not a broad statistical study.",
+    "Beta subsets are selected before LDLQ feedback, while the paper discusses post-LDLQ beta optimization.",
+    "Weights execute through BF16 Linear after inverse rotation and dequantization; no low-bit runtime speedup is measured.",
+    "A4, KV4 and QA-LDLQ remain unimplemented."
+  ]
+}

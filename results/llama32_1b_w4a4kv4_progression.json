@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-21T13:50:32.899851+00:00",
+  "status": "validated",
+  "evaluation_batch_size": 4,
+  "comparability": {
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+    "predicted_token_count": 288627,
+    "source_sha256": "1c5015d1c5ed8aebb6d229385b3aa1db15226841b7910ce77e155f5e0e4ff47f",
+    "checkpoint_sha256": "5cd2b02c892497e4345c5ca5dbefc2d20fccd2038044356e65e517eca334f199"
+  },
+  "results": {
+    "w4": {
+      "label": "W4 LDLQ",
+      "perplexity": 10.276600997550544,
+      "relative_change_vs_w4_percent": 0.0,
+      "relative_change_vs_w4kv4_percent": -4.243497837565624,
+      "activation_relative_squared_error": null,
+      "activation_overload_fraction": null,
+      "kv_relative_squared_error": null,
+      "manifest": "D:\\code\\NestQuant-AIInfra\\results\\raw\\llama32_1b_w4_ldlq_cache_control_batch4_full_20261021.json",
+      "manifest_sha256": "38fdb1bafa5cd9b9520bea2f7e71518d7ae335b264add447c2385ee79d70001c",
+      "peak_cuda_memory_allocated_bytes": 5007417856,
+      "elapsed_seconds": 71.64776019999408
+    },
+    "w4kv4": {
+      "label": "W4KV4",
+      "perplexity": 10.732013769799218,
+      "relative_change_vs_w4_percent": 4.431550591068234,
+      "relative_change_vs_w4kv4_percent": 0.0,
+      "activation_relative_squared_error": null,
+      "activation_overload_fraction": null,
+      "kv_relative_squared_error": 0.006190017831772091,
+      "manifest": "D:\\code\\NestQuant-AIInfra\\results\\raw\\llama32_1b_w4kv4_upstream_betas_batch4_full_20261021.json",
+      "manifest_sha256": "e43393b6bf94ecda255743cce885d9227bd8f34eeb3a7ac3e83d30fa9a651346",
+      "peak_cuda_memory_allocated_bytes": 5007417856,
+      "elapsed_seconds": 588.5723760999972
+    },
+    "w4a4kv4": {
+      "label": "W4A4KV4",
+      "perplexity": 11.578170954910318,
+      "relative_change_vs_w4_percent": 12.665374063564471,
+      "relative_change_vs_w4kv4_percent": 7.884421351491899,
+      "activation_relative_squared_error": 0.006392091632815707,
+      "activation_overload_fraction": 0.05438403795796928,
+      "kv_relative_squared_error": 0.006189635042802859,
+      "manifest": "D:\\code\\NestQuant-AIInfra\\results\\raw\\llama32_1b_w4a4kv4_upstream_betas_batch4_full_20261021.json",
+      "manifest_sha256": "c6f2736005c2697471ba5a0011a8da410f7d243688e4dedea89c649f238ab43c",
+      "peak_cuda_memory_allocated_bytes": 7339435008,
+      "elapsed_seconds": 1280.655366299994
+    }
+  },
+  "evidence_boundary": {
+    "weights": "packed NQMC W4 is reloaded, then dequantized for BF16 compute",
+    "activations": "A4 is floating reconstruction quality simulation",
+    "kv_cache": "KV4 is floating reconstruction quality simulation",
+    "speed": "elapsed time is reference-code overhead, not low-bit kernel speed"
+  }
+}

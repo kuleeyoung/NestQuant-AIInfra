@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-21T13:50:32.813063+00:00",
+  "status": "validated",
+  "scope": "Llama-3.2-1B Base, NQMC W4 block-LDLQ weights, WikiText-2 test, KV4 quality simulation",
+  "comparability": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "context_length": 2048,
+    "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+    "predicted_token_count": 288627,
+    "source_sha256": "73de39ec2a6a7580f012cf0807b0ddc065b03f413fb36f503bbe7df39f4e1bd3",
+    "checkpoint_sha256": "5cd2b02c892497e4345c5ca5dbefc2d20fccd2038044356e65e517eca334f199"
+  },
+  "results": {
+    "w4_dynamic_cache": {
+      "label": "W4 LDLQ + floating DynamicCache",
+      "manifest": "D:\\code\\NestQuant-AIInfra\\results\\raw\\llama32_1b_w4_ldlq_cache_control_current_full_20261021.json",
+      "manifest_sha256": "daec461b02672261244fcf7ab3975323a3a6bd69bb22837fe44b8da9ea917f9e",
+      "config_sha256": "0b118065186ae6c904334463ce896e839ed611b0ea901fcbf01fc02358c7294b",
+      "perplexity": 10.276132955046204,
+      "mean_nll": 2.3298240175685887,
+      "predicted_tokens": 288627,
+      "elapsed_seconds": 81.08635520000826,
+      "relative_squared_error": null,
+      "overload_fraction": null,
+      "estimated_bits_per_kv_entry": null,
+      "kv_storage_status": null,
+      "ppl_delta_vs_w4": 0.0,
+      "ppl_relative_change_vs_w4_percent": 0.0,
+      "ppl_delta_vs_qk_rotation": -0.004786909486352187,
+      "ppl_relative_change_vs_qk_rotation_percent": -0.04656110104375166
+    },
+    "w4_qk_rotation": {
+      "label": "W4 LDLQ + matched Q/K rotation",
+      "manifest": "D:\\code\\NestQuant-AIInfra\\results\\raw\\llama32_1b_w4_ldlq_qkrot_control_current_full_20261021.json",
+      "manifest_sha256": "ad2c5f979bf694ba3283152b26d511a02aa4088cc1e63d7f796c42a470d49581",
+      "config_sha256": "94e38d8d5966a8a29f42514e8aaf56bc94254ff5d9fd17decb2ec688319c0f42",
+      "perplexity": 10.280919864532557,
+      "mean_nll": 2.3302897370094917,
+      "predicted_tokens": 288627,
+      "elapsed_seconds": 113.94574239999929,
+      "relative_squared_error": null,
+      "overload_fraction": null,
+      "estimated_bits_per_kv_entry": null,
+      "kv_storage_status": null,
+      "ppl_delta_vs_w4": 0.004786909486352187,
+      "ppl_relative_change_vs_w4_percent": 0.046582790503912896,
+      "ppl_delta_vs_qk_rotation": 0.0,
+      "ppl_relative_change_vs_qk_rotation_percent": 0.0
+    },
+    "w4kv4_local_dp": {
+      "label": "W4KV4 + local six-chunk beta DP",
+      "manifest": "D:\\code\\NestQuant-AIInfra\\results\\raw\\llama32_1b_w4kv4_perhead_qkrot_margin4_full_20261021.json",
+      "manifest_sha256": "fb239020d8d4f42c8e9f2e2af0d63ec2f1f1ef7005a311e6743c819e8c078330",
+      "config_sha256": "cfa172af7666f8de658eda192822d32b7f7385c8472bb6f89d21cf6ce299ad09",
+      "perplexity": 11.333719885742612,
+      "mean_nll": 2.4277823429319265,
+      "predicted_tokens": 288627,
+      "elapsed_seconds": 634.2705273000029,
+      "relative_squared_error": 0.01299673115035644,
+      "overload_fraction": 0.002399801362490823,
+      "estimated_bits_per_kv_entry": 4.75,
+      "kv_storage_status": "estimate_only_no_packed_kv_cache_allocated",
+      "ppl_delta_vs_w4": 1.0575869306964076,
+      "ppl_relative_change_vs_w4_percent": 10.291682049297224,
+      "ppl_delta_vs_qk_rotation": 1.0528000212100554,
+      "ppl_relative_change_vs_qk_rotation_percent": 10.240329027775408
+    },
+    "w4kv4_upstream_beta": {
+      "label": "W4KV4 + public-upstream default betas",
+      "manifest": "D:\\code\\NestQuant-AIInfra\\results\\raw\\llama32_1b_w4kv4_upstream_betas_full_20261021.json",
+      "manifest_sha256": "fe4242fe302fd884e694bfe93c7044921f03a781fe0321907b5d745e60974c6d",
+      "config_sha256": "6f1527c800a808efaa9a9922b4979afed497b6fada9b4c71f8a4d746a8ac4e6a",
+      "perplexity": 10.712354878671018,
+      "mean_nll": 2.371397736916947,
+      "predicted_tokens": 288627,
+      "elapsed_seconds": 715.5167940000101,
+      "relative_squared_error": 0.00619008618987041,
+      "overload_fraction": 0.0538987859766534,
+      "estimated_bits_per_kv_entry": 4.75,
+      "kv_storage_status": "estimate_only_no_packed_kv_cache_allocated",
+      "ppl_delta_vs_w4": 0.4362219236248137,
+      "ppl_relative_change_vs_w4_percent": 4.245000775419139,
+      "ppl_delta_vs_qk_rotation": 0.4314350141384615,
+      "ppl_relative_change_vs_qk_rotation_percent": 4.196463155275043
+    }
+  },
+  "findings": {
+    "qk_rotation_relative_ppl_change_percent": 0.046582790503912896,
+    "upstream_beta_relative_ppl_change_vs_w4_percent": 4.245000775419139,
+    "local_dp_relative_ppl_change_vs_w4_percent": 10.291682049297224,
+    "upstream_beta_ppl_improvement_over_local_dp": 0.6213650070715939,
+    "upstream_beta_relative_ppl_improvement_over_local_dp_percent": 5.482445422471116
+  },
+  "evidence_boundary": {
+    "quality": "full WikiText-2 fake-quant PPL measured",
+    "storage": "4.75 bits/entry is an analytical estimate; runtime cache remains floating point",
+    "speed": "not measured and not claimed; no packed KV cache or low-bit attention kernel",
+    "paper_reproduction": "public defaults are mapped from the upstream repository; the upstream beta DP script is unavailable"
+  }
+}

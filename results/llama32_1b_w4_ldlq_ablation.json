@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "comparison": "Llama-3.2-1B BF16 vs NestQuant W4 vs NestQuant W4 + block-LDLQ",
+  "protocol": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dataset_id": "Salesforce/wikitext",
+    "dataset_config": "wikitext-2-raw-v1",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "context_length": 2048,
+    "seed": 58,
+    "q": 14,
+    "beta_coefficients_project_scale": [
+      3.5,
+      4.5,
+      6.0,
+      14.5,
+      25.0,
+      40.0,
+      50.0
+    ],
+    "selected_beta_count": 4,
+    "rows_per_chunk": 512,
+    "weight_rotation": "none",
+    "model_dtype": "bfloat16",
+    "logit_loss_dtype": "float32",
+    "quantization_scope": "torch.nn.Linear weights only; BF16 compute after dequantization",
+    "source_sha256": "74051211205397bed4a913fae76fdb614cb0af8e1bd73d28a42851372d973776",
+    "test_token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+    "predicted_token_count": 288627
+  },
+  "ldlq_calibration": {
+    "chunks": 16,
+    "hessian_directory": "D:\\code\\NestQuant-AIInfra\\results\\raw\\calibration",
+    "relative_damp": 0.01,
+    "artifacts": [
+      {
+        "artifact": "hessian_layers00_03_train16.pt",
+        "bytes": 1275074859,
+        "sha256": "7791c77e555862226d86a380e5e60e9d650a5cb65dcec5d723f2fe77bc4525cc",
+        "module_count": 16,
+        "peak_cuda_memory_allocated_bytes": 4316091392
+      },
+      {
+        "artifact": "hessian_layers04_07_train16.pt",
+        "bytes": 1275074859,
+        "sha256": "7709e664396a55c7509af576f911e791e09b43e8761aad09564516cf06831c01",
+        "module_count": 16,
+        "peak_cuda_memory_allocated_bytes": 4316091392
+      },
+      {
+        "artifact": "hessian_layers08_11_train16.pt",
+        "bytes": 1275074859,
+        "sha256": "56d2c697efc9364e8c00bbd46fdfacf882154425c3d2b1e3635a2da3fed98891",
+        "module_count": 16,
+        "peak_cuda_memory_allocated_bytes": 4316091392
+      },
+      {
+        "artifact": "hessian_layers12_15_train16.pt",
+        "bytes": 1275074859,
+        "sha256": "9b6ceb40522e1f084bf08c84b215505f1c77dd03f71058b918b183d625f2f96f",
+        "module_count": 16,
+        "peak_cuda_memory_allocated_bytes": 4316091392
+      },
+      {
+        "artifact": "hessian_lm_head_train16.pt",
+        "bytes": 16779033,
+        "sha256": "182890ecb5479610c99f91f48cca1241fa73f9114a7de757695b5bc972702a10",
+        "module_count": 1,
+        "peak_cuda_memory_allocated_bytes": 3057800192
+      }
+    ],
+    "artifact_bytes_total": 5117078469,
+    "legacy_run_manifest_train_token_ids_sha256": "d605904bdc2bf7af8402b7704e9a3845fb291a598284ce3c0c6f8ccd8df8f526",
+    "calibration_token_ids_sha256": "8f310000f176cee30737b9ed4f307af7ae0cd72d13a81e3718184a530be39f3a",
+    "train_corpus_token_ids_sha256": "d605904bdc2bf7af8402b7704e9a3845fb291a598284ce3c0c6f8ccd8df8f526"
+  },
+  "results": {
+    "bf16": {
+      "perplexity": 9.757044668408586,
+      "mean_nll": 2.2779895542037405,
+      "elapsed_seconds": 17.5299501000045
+    },
+    "nestquant_w4": {
+      "perplexity": 11.202577129778936,
+      "mean_nll": 2.4161438527050225,
+      "elapsed_seconds": 95.93149280000216
+    },
+    "nestquant_w4_ldlq_train16": {
+      "perplexity": 10.323713881221252,
+      "mean_nll": 2.3344435675263053,
+      "elapsed_seconds": 625.7840089000019
+    }
+  },
+  "derived": {
+    "ordinary_w4_minus_bf16_ppl": 1.44553246137035,
+    "ldlq_w4_minus_bf16_ppl": 0.5666692128126662,
+    "ldlq_absolute_ppl_reduction_vs_ordinary_w4": 0.8788632485576837,
+    "ldlq_relative_ppl_reduction_vs_ordinary_w4_percent": 7.845188106060616,
+    "bf16_gap_closed_by_ldlq_percent": 60.7985826706742
+  },
+  "evidence_scope": {
+    "quality": "full WikiText-2 test fake-quant quality simulation",
+    "storage": "not measured for the LDLQ variant",
+    "inference_speed": "not measured; execution dequantizes to BF16 Linear weights",
+    "paper_scope": "W4 block-LDLQ ablation; no activation/KV quantization and no QA-LDLQ"
+  }
+}

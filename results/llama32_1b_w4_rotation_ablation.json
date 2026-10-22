@@ -1,0 +1,71 @@
+{
+  "protocol": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dataset_id": "Salesforce/wikitext",
+    "dataset_config": "wikitext-2-raw-v1",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "context_length": 2048,
+    "model_dtype": "bfloat16",
+    "logit_loss_dtype": "float32",
+    "seed": 58,
+    "q": 14,
+    "beta_coefficients_project_scale": [
+      3.5,
+      4.5,
+      6.0,
+      14.5,
+      25.0,
+      40.0,
+      50.0
+    ],
+    "selected_beta_count": 4,
+    "dither_rng_device": "cpu",
+    "rows_per_chunk": 512,
+    "quantization_scope": "torch.nn.Linear weights only; BF16 compute after dequantization"
+  },
+  "evaluation_split": "test",
+  "predicted_tokens": 288627,
+  "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "nestquant_python_source_sha256": "6ea6106cddc588396b2b1a6ccdcc0405442b94b28b0dea9c672d934912e03e78",
+  "measurements": [
+    {
+      "source": "results/raw/llama32_1b_no_rotation_full_20261020.json",
+      "run_id": "20261020T112307246343Z",
+      "source_sha256": "6ea6106cddc588396b2b1a6ccdcc0405442b94b28b0dea9c672d934912e03e78",
+      "rotation_seed": null,
+      "perplexity": 11.202577129778936,
+      "mean_nll": 2.4161438527050225,
+      "elapsed_seconds": 213.25818209999852
+    },
+    {
+      "source": "results/raw/llama32_1b_rotation123_current_source_full_20261021.json",
+      "run_id": "20261020T160806674034Z",
+      "source_sha256": "6ea6106cddc588396b2b1a6ccdcc0405442b94b28b0dea9c672d934912e03e78",
+      "rotation_seed": 123,
+      "perplexity": 11.004825062075923,
+      "mean_nll": 2.398333818629991,
+      "elapsed_seconds": 187.03305209999962,
+      "ppl_change_vs_no_rotation": -0.19775206770301246
+    },
+    {
+      "source": "results/raw/llama32_1b_rotation124_full_20261020.json",
+      "run_id": "20261020T112720995388Z",
+      "source_sha256": "6ea6106cddc588396b2b1a6ccdcc0405442b94b28b0dea9c672d934912e03e78",
+      "rotation_seed": 124,
+      "perplexity": 11.147938273023643,
+      "mean_nll": 2.411254572559489,
+      "elapsed_seconds": 238.04733059999853,
+      "ppl_change_vs_no_rotation": -0.05463885675529312
+    }
+  ],
+  "rotated_mean_ppl": 11.076381667549782,
+  "rotated_population_std_ppl": 0.07155660547385967,
+  "rotated_mean_ppl_change_vs_no_rotation": -0.12619546222915368,
+  "limitations": [
+    "Weight-space rotation ablation, not complete paper rotation/LDLQ/QA-LDLQ.",
+    "Reconstructed original-basis weights execute in BF16; no packed rotated artifact or speedup.",
+    "Paper Appendix G says validation; public author ppl.py/ppl_utils.py use test. This run uses test.",
+    "Rotation seeds are tested at one fixed dither seed; do not infer broad robustness."
+  ]
+}

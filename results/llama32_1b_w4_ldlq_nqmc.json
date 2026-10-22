@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "status": "verified_local_result",
+  "scope": "Llama-3.2-1B NestQuant W4 block-LDLQ NQMC export and reload",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "dataset_id": "Salesforce/wikitext",
+  "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "test_token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "predicted_token_count": 288627,
+  "calibration": {
+    "algorithm": "8-column E8 block-LDLQ",
+    "block_size": 8,
+    "relative_damp": 0.01,
+    "chunks": 64,
+    "dataset": "WikiText-2 train",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "context_length": 2048,
+    "calibration_tokens": 131072,
+    "calibration_token_ids_sha256": "7dcba79b76b0e185ab48d7e27697db01da6345122b6fd0f000a3d64ae9229db3",
+    "train_corpus_token_ids_sha256": "d605904bdc2bf7af8402b7704e9a3845fb291a598284ce3c0c6f8ccd8df8f526",
+    "hessian_artifacts": [
+      {
+        "file": "hessian_layers00_03_train64.pt",
+        "bytes": 1275074859,
+        "sha256": "cff4a6246eb54b018d7f1c36e99b6f0433007df8e7a242d0b222a3800fd9530f",
+        "manifest_sha256": "31dad371589469f032523bbd25ec7ee1160794556f56b2d9dde79bd27bca5599",
+        "module_count": 16
+      },
+      {
+        "file": "hessian_layers04_07_train64.pt",
+        "bytes": 1275074859,
+        "sha256": "83aba0dd5b519723a7ae28f72e64e6c7c4a64d436bd95e05a588f68dc1c493e2",
+        "manifest_sha256": "1377be03032c3eb60be1b1a175969491364379cc3ba1923240bc60e01116f4ae",
+        "module_count": 16
+      },
+      {
+        "file": "hessian_layers08_11_train64.pt",
+        "bytes": 1275074859,
+        "sha256": "cbc5a66457cf4abf073eeb1b4aa68d46c81a10eb19266393bc3d4df0b2f988d0",
+        "manifest_sha256": "2743941a60db089a4e00d9d2e99f016de2cd757343a5abcc11a784d68147e37a",
+        "module_count": 16
+      },
+      {
+        "file": "hessian_layers12_15_train64.pt",
+        "bytes": 1275074859,
+        "sha256": "12a04d6562815b5721921588b141dc9ca465166fbe6c03c5f19e58982d77228c",
+        "manifest_sha256": "7ba4e4d497d487936ecaf1f48f46b7fbd93cf0ff3cd3419c2ac7eb584bee76f2",
+        "module_count": 16
+      },
+      {
+        "file": "hessian_lm_head_train64.pt",
+        "bytes": 16779033,
+        "sha256": "42edb5a7a7955902daaf98b43d56fbbbad49840dded9401af92f8e5e6664204a",
+        "manifest_sha256": "acfd65623a07e3e29b94f4e85dde08cc7fbbee5e629e9075122784d5057f2faa",
+        "module_count": 1
+      }
+    ],
+    "hessian_bytes_total": 5117078469
+  },
+  "quality": {
+    "bf16_perplexity": 9.757044668408586,
+    "ordinary_nestquant_w4_perplexity": 11.202577129778936,
+    "ldlq_in_memory_perplexity": 10.276132955046204,
+    "ldlq_export_roundtrip_perplexity": 10.276132955046204,
+    "ldlq_load_only_perplexity": 10.276132955046204,
+    "exact_ppl_match": true
+  },
+  "checkpoint": {
+    "file_sha256": "5cd2b02c892497e4345c5ca5dbefc2d20fccd2038044356e65e517eca334f199",
+    "file_bytes": 659281364,
+    "quantized_tensor_count": 113,
+    "quantized_parameter_count": 1235746816,
+    "quantized_record_bytes": 659123050,
+    "effective_bits_per_quantized_parameter_including_record_metadata": 4.267042675511939,
+    "dense_tensor_count": 33,
+    "dense_payload_bytes": 135168,
+    "tied_alias_count": 1,
+    "container_header_manifest_bytes": 23146,
+    "raw_bf16_equivalent_payload_bytes": 2471628800,
+    "file_to_raw_bf16_payload_ratio": 0.26673963501315406
+  },
+  "runs": {
+    "export_roundtrip_manifest": "results\\raw\\llama32_1b_ldlq_train64_nqmc_full_20261021.json",
+    "load_only_manifest": "results\\raw\\llama32_1b_ldlq_train64_nqmc_loadonly_full_20261021.json",
+    "export_roundtrip_elapsed_seconds": 773.1972052000056,
+    "load_only_full_run_elapsed_seconds": 57.057620999999926
+  },
+  "limitations": [
+    "NQMC contains real packed 4-bit residue and beta-index streams, but reload dequantizes weights for BF16 Linear execution.",
+    "The BF16 size denominator is a calculated unique-state payload, not a separately exported BF16 checkpoint file.",
+    "The load-only elapsed time includes base-model loading, NQMC parsing/dequantization and PPL evaluation; it is not an isolated model-load benchmark.",
+    "No low-bit matrix-multiplication kernel, latency speedup or throughput improvement is claimed.",
+    "Rotation and LDLQ remain separate model-level ablations; A4, KV4 and QA-LDLQ are not implemented."
+  ]
+}

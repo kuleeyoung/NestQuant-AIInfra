@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "status": "planned_model_grid_not_run",
+  "protocol": "configs/project.json",
+  "q": 14,
+  "selected_beta_count": 4,
+  "candidate_values": {
+    "stored_as": "numerator_over_q",
+    "numerator_start_inclusive": 1.0,
+    "numerator_stop_inclusive": 40.0,
+    "numerator_step": 0.25,
+    "actual_beta_formula": "numerator / q",
+    "origin": "project convention within the paper's stated range; a uniform 0.25 grid is not claimed to be the paper's unspecified complete grid"
+  },
+  "selection_strategy": "first_beta_dynamic_programming",
+  "final_block_assignment": "minimum_reconstruction_squared_error_over_selected_betas",
+  "paper_candidate_beta_numerators_for_initial_weight_fit": [3.5, 4.5, 6.0, 14.5, 25.0],
+  "model_quality_simulation_candidates_project_scale": [3.5, 4.5, 6.0, 14.5, 25.0, 40.0, 50.0, 100.0],
+  "model_extension_note": "Appendix G reports a beta search universe through 40.0/q and a selected default list ending at 25.0/q. This project adds 40.0 to that selected list and extends the reported universe with 50.0 for baseline model-block coverage and 100.0 for an observed QA-LDLQ outlier. These extensions are project protocol choices, not paper defaults."
+}

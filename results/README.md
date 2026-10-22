@@ -1,0 +1,34 @@
+# 结果目录
+
+只提交经核验的小型汇总表、配置快照和图表源数据。每个数字必须能追溯到 `run_id`、JSON manifest、命令、日志、配置哈希和代码版本。
+
+大模型权重、缓存、原始数据和大体积日志留在本机目录，不上传 Git。论文参考值单独标注来源，不能混入本地实测结果。首轮 Llama-3.2-1B WikiText-2 质量仿真已完成，结论和边界见 [首轮结果说明](llama32_1b_wikitext2_first_run.md)，可复核 manifest 与 CSV 也保存在本目录。
+
+## WikiText-2 PPL 汇总
+
+模型评测脚本每次运行都会在 `results/raw/` 生成独立 JSON manifest（包括失败和 smoke run）。完成若干次评测后，可用以下命令生成便于查看的 CSV：
+
+```powershell
+python scripts/summarize_ppl_results.py
+```
+
+默认输出 `results/ppl_summary.csv`。相对 BF16 的 PPL 变化只在同一份 manifest 同时含有 BF16 和对应方法结果时计算；汇总保留 run 状态、token 数、方法耗时、配置哈希和原始 manifest 路径。`smoke_completed` 仍是短测，不能当作完整 WikiText-2 结果。CSV 默认留在本地结果目录，不自动提交 Git。评测入口会在控制台标出数据加载、量化和 PPL 计算阶段，并在 manifest 中记录当前/失败方法，便于定位中断位置。
+
+
+## Local smoke run
+
+`raw/matrix_product_toy_smoke.json` is an n=8, m=8, k=16, seed 58 code-path check. It uses the beta step 0.5 from paper Section 5.1, but the matrices are much smaller than the paper's 4096 setting and the effective bit rates are not matched. The file is excluded by `.gitignore` and is not a paper reproduction result; rerun the same command to regenerate it.
+
+
+Post-hoc effective W4 bitrate estimates and the tied embedding/`lm_head` caveat are documented in [llama32_1b_w4_rate_accounting.md](llama32_1b_w4_rate_accounting.md). They are packing assumptions, not measured checkpoint sizes.
+
+后续已完成真实 NQMC 打包文件、回载和全量 WikiText-2 PPL；测得文件字节数、有效码率和证据边界见 [模型级结果](llama32_1b_nqmc_w4_full.md)。首轮文档中的“尚无模型级文件”仅对应当时的实验阶段。
+
+W4KV4 已完成相同 NQMC W4 权重下的 DynamicCache、匹配 Q/K 旋转、本地六段 beta DP 和作者公开默认 beta 四组完整消融；自动校验后的指标、哈希和质量/存储/速度边界见 [W4KV4 消融结果](llama32_1b_w4kv4_ablation.md)。
+
+W4A4KV4 已完成 batch=4 的同源递进实验；W4、W4KV4、W4A4KV4 的完整 PPL、峰值 CUDA allocated、哈希一致性与证据边界见 [W4A4KV4 递进结果](llama32_1b_w4a4kv4_progression.md)。
+
+QuaRot 已完成 Llama-3.2-1B 兼容移植和同一测试 token 流的完整质量对照。旋转 BF16、GPTQ W4、W4KV4、W4A4、W4A4KV4 PPL 分别为 9.762884、10.508346、12.269130、15.850334、21.095586；实现修复、协议差异和可陈述边界见 [NestQuant 与 QuaRot 对照](llama32_1b_quarot_comparison.md)。
+
+
+The complete negative W4 and W4A4KV4 QA-LDLQ ablation, protocol differences, and raw-manifest index are in [the QA-LDLQ report](llama32_1b_qa_ldlq_ablation.md).

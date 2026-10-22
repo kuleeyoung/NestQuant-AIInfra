@@ -1,0 +1,74 @@
+{
+  "project_name": "NestQuant-AIInfra",
+  "paper": {
+    "title": "NestQuant: Nested Lattice Quantization for Matrix Products and LLMs",
+    "arxiv_id": "2502.09720v3",
+    "upstream_repository": "https://github.com/cookiedoth/nestquant"
+  },
+  "reproduction_target": {
+    "model": "meta-llama/Llama-3.2-1B",
+    "variant": "base",
+    "weight_dtype": "bfloat16",
+    "dataset": "Salesforce/wikitext:wikitext-2-raw-v1",
+    "context_length": 2048,
+    "primary_metric": "exp(total_nll / predicted_tokens)"
+  },
+  "initial_algorithm_config": {
+    "lattice": "E8",
+    "block_dimension": 8,
+    "q": 14,
+    "selected_beta_count": 4,
+    "seed": 58,
+    "quality_simulation_only": true
+  },
+  "llm_ppl_experiment": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dataset_id": "Salesforce/wikitext",
+    "dataset_config": "wikitext-2-raw-v1",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "methods": [
+      "bf16",
+      "rtn_w4",
+      "nestquant_w4"
+    ],
+    "rtn_group_size": 128,
+    "rows_per_chunk": 512,
+    "dither_rng_device": "cpu",
+    "model_dtype": "bfloat16",
+    "logit_loss_dtype": "float32",
+    "beta_coefficients_project_scale": [
+      3.5,
+      4.5,
+      6.0,
+      14.5,
+      25.0,
+      40.0,
+      50.0,
+      100.0
+    ],
+    "beta_grid_note": "The paper Appendix G reports a search universe up to 40.0/q and a selected default list ending at 25.0/q. This project adds 40.0 to that selected list and extends the reported universe with 50.0 for normalized baseline blocks and 100.0 for the observed QA-LDLQ outlier coverage. These project extensions are disclosed and are not paper defaults.",
+    "quantization_scope": "torch.nn.Linear weights only; BF16 compute after dequantization"
+  },
+  "status": {
+    "e8_nearest_point_reference": "implemented_and_unit_tested",
+    "nested_codec": "implemented_and_unit_tested",
+    "fixed_beta_row_quantizer": "implemented_and_unit_tested",
+    "first_beta_subset_search": "implemented_and_unit_tested_on_synthetic_tables",
+    "llm_adapter": "fake_quant_linear_adapters_implemented_and_unit_tested",
+    "index_stream_packing_prototype": "NQPK_v1_NQRT_v2_reproducible_cpu_dither_state_NQMC_v1_and_evaluator_export_path_implemented",
+    "model_checkpoint_export_validation": "llama32_1b_nqmc_export_reload_and_full_wikitext2_ppl_complete",
+    "model_evaluation": "full_wikitext2_ppl_complete_fake_quant_only",
+    "model_evaluation_note": "Llama-3.2-1B Base: BF16, RTN W4, and project NestQuant W4 including packed NQMC reload completed; see results/llama32_1b_nqmc_w4_full.md",
+    "weight_rotation_ablation": "two_seed_rotation_only_and_two_seed_combined_with_train64_block_ldlq_complete",
+    "rotation_ldlq_factorial": "same_source_full_wikitext2_test_two_seed_complete_combined_ppl_10.136666_10.121536",
+    "kv4_quality_simulation": "post_rope_matched_qk_hadamard_per_head_e8_full_wikitext2_complete",
+    "kv4_primary_result": "upstream_default_beta_ppl_10.712355_vs_w4_dynamic_cache_10.276133",
+    "a4_quality_simulation": "llama_projection_inputs_qkvo_gate_up_down_with_upstream_default_betas_complete",
+    "w4a4kv4_primary_result": "batch4_full_ppl_11.578171_vs_w4kv4_10.732014_and_w4_10.276601",
+    "qa_ldlq": "implemented_scale_audited_and_closed_under_bounded_search",
+    "packed_kv_cache": "not_implemented",
+    "packed_low_bit_inference": "not_implemented",
+    "qa_ldlq_primary_result": "Hessian normalization mismatch was 2048x; corrected C=634880 restored W4/W4A4KV4 PPL to 10.283140/11.584234 but did not beat ordinary LDLQ 10.276601/11.578171"
+  }
+}

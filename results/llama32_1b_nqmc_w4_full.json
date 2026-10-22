@@ -1,0 +1,52 @@
+{
+  "status": "verified_local_result",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "dataset_id": "Salesforce/wikitext",
+  "dataset_config": "wikitext-2-raw-v1",
+  "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "context_length": 2048,
+  "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "chunk_count": 141,
+  "methods": {
+    "bf16": {
+      "perplexity": 9.757044668408586,
+      "mean_nll_per_predicted_token": 2.2779895542037405,
+      "predicted_token_count": 288627,
+      "run_id": "20261014T094700690357Z"
+    },
+    "rtn_w4": {
+      "perplexity": 13.02148501618072,
+      "mean_nll_per_predicted_token": 2.5666006868187683,
+      "predicted_token_count": 288627,
+      "run_id": "20261014T094700690357Z"
+    },
+    "nestquant_w4": {
+      "perplexity": 11.202577129778936,
+      "mean_nll_per_predicted_token": 2.4161438527050225,
+      "predicted_token_count": 288627,
+      "run_id": "20261014T094218403214Z"
+    }
+  },
+  "checkpoint": {
+    "file_sha256": "6e3f666b50d3eeef9a1a950c1e24a0439f39d9398ddddee0d97ad5b61e44d65d",
+    "file_bytes": 659279649,
+    "quantized_tensor_count": 113,
+    "quantized_parameter_count": 1235746816,
+    "quantized_record_bytes": 659123050,
+    "effective_bits_per_quantized_parameter_including_record_metadata": 4.267042675511939,
+    "dense_tensor_count": 33,
+    "dense_payload_bytes": 135168,
+    "tied_alias_count": 1,
+    "raw_bf16_equivalent_payload_bytes": 2471628800,
+    "file_to_raw_bf16_payload_ratio": 0.2667389411387341
+  },
+  "limitations": [
+    "Paper Appendix G reports a search universe through 40.0/q and selected defaults through 25.0/q; the project adds 40.0 to selected candidates and extends the reported universe with 50.0.",
+    "Rotation and LDLQ/QA-LDLQ are not implemented.",
+    "PPL uses dequantized BF16 model execution; no low-bit inference speedup is measured.",
+    "BF16 reference size is calculated raw payload, not a measured BF16 file.",
+    "RTN W4 has only estimated effective bit rate; no packed RTN checkpoint is measured.",
+    "The repository had no Git commit at measurement time."
+  ]
+}

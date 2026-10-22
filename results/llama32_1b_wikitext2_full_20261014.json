@@ -1,0 +1,871 @@
+{
+  "schema_version": 1,
+  "run_id": "20261014T041113467349Z",
+  "created_at_utc": "2026-10-14T04:11:13.467349+00:00",
+  "status": "completed",
+  "config": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dataset_id": "Salesforce/wikitext",
+    "dataset_config": "wikitext-2-raw-v1",
+    "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+    "methods": [
+      "bf16",
+      "rtn_w4",
+      "nestquant_w4"
+    ],
+    "context_length": 2048,
+    "seed": 58,
+    "q": 14,
+    "beta_coefficients_project_scale": [
+      3.5,
+      4.5,
+      6.0,
+      14.5,
+      25.0,
+      40.0,
+      50.0
+    ],
+    "beta_grid_note": "Correction after the run: Appendix G reports a search universe through 40.0/q and selected defaults through 25.0/q. The project adds 40.0 to selected candidates and extends the reported universe with 50.0.",
+    "selected_beta_count": 4,
+    "rtn_group_size": 128,
+    "rows_per_chunk": 512,
+    "device": "cuda",
+    "model_dtype": "bfloat16",
+    "logit_loss_dtype": "float32",
+    "limit_chunks": null,
+    "offline": false,
+    "quantization_scope": "torch.nn.Linear weights only; BF16 compute after dequantization"
+  },
+  "config_sha256": "4677e85a8321351dd5b7e53dadebad9d6d8cb6a9be0a9df2b19f74f8805d16c4",
+  "environment": {
+    "python": "3.14.7",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "torch": "2.14.0+cu130",
+    "torch_cuda": "13.0",
+    "gpu": "NVIDIA GeForce RTX 5070"
+  },
+  "protocol_notes": [
+    "Project protocol: join test text rows with two newlines, add BOS/EOS once when available, then use complete non-overlapping chunks.",
+    "Each chunk contributes context_length-1 next-token targets; the incomplete tail is dropped.",
+    "RTN W4 uses symmetric group-wise quantization with group size 128.",
+    "NestQuant W4 is a fake-quant quality simulation: per-layer beta subset DP and Opt-beta; no rotation or LDLQ/QA-LDLQ.",
+    "Correction after the run: model beta candidates are [3.5, 4.5, 6.0, 14.5, 25.0, 40.0, 50.0]. Appendix G reports a search universe through 40.0/q and selected defaults through 25.0/q; 50.0 extends that reported universe.",
+    "All Linear layers including lm_head are quantized. Post-hoc inspection of the pinned config shows tied input/output embeddings; lm_head in-place updates therefore also affect the shared input embedding matrix. This alias was not captured by the original run logger.",
+    "No low-bit packing, storage reduction, or inference acceleration is measured."
+  ],
+  "results": {
+    "bf16": {
+      "method": "bf16",
+      "quality_stage": "bf16_reference",
+      "evaluation": {
+        "total_nll": 657489.291061163,
+        "mean_nll_per_predicted_token": 2.2779895542037405,
+        "perplexity": 9.757044668408586,
+        "predicted_token_count": 288627,
+        "chunk_count": 141,
+        "context_length": 2048,
+        "peak_cuda_memory_allocated_bytes": 3066206720,
+        "peak_cuda_memory_reserved_bytes": 3212836864
+      },
+      "elapsed_seconds": 20.267113400012022
+    },
+    "rtn_w4": {
+      "method": "rtn_w4_fake_quant",
+      "quality_stage": "fake_quant_quality_simulation",
+      "group_size": 128,
+      "layers": 113,
+      "parameters": 1235746816,
+      "scale_count": 9654272,
+      "evaluation": {
+        "total_nll": 740790.2564344406,
+        "mean_nll_per_predicted_token": 2.5666006868187683,
+        "perplexity": 13.02148501618072,
+        "predicted_token_count": 288627,
+        "chunk_count": 141,
+        "context_length": 2048,
+        "peak_cuda_memory_allocated_bytes": 3065158144,
+        "peak_cuda_memory_reserved_bytes": 5997854720
+      },
+      "elapsed_seconds": 19.196089700009907,
+      "row_count_derived_from_pinned_config": 505088,
+      "storage_estimate_posthoc": {
+        "status": "estimate_only_no_packed_tensor_written",
+        "assumptions": "4-bit packed signed codes; FP32 scale per group; ignores tensor padding and container headers",
+        "code_bits": 4942987264,
+        "scale_metadata_bits": 308936704,
+        "other_metadata_bits": 0,
+        "total_bits": 5251923968,
+        "estimated_bytes": 656490496,
+        "effective_bits_per_quantized_parameter": 4.25
+      }
+    },
+    "nestquant_w4": {
+      "method": "nestquant_w4_quality_simulation",
+      "quality_stage": "fake_quant_quality_simulation",
+      "q": 14,
+      "beta_coefficients_project_scale": [
+        3.5,
+        4.5,
+        6.0,
+        14.5,
+        25.0,
+        40.0,
+        50.0
+      ],
+      "candidate_codec_scales": [
+        0.25,
+        0.32142857142857145,
+        0.42857142857142855,
+        1.0357142857142858,
+        1.7857142857142858,
+        2.857142857142857,
+        3.5714285714285716
+      ],
+      "selected_beta_count": 4,
+      "seed": 58,
+      "rows_per_chunk": 512,
+      "layers": 113,
+      "parameters": 1235746816,
+      "layer_beta_subsets": {
+        "model.layers.0.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.0.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.0.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.0.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.0.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.0.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.0.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          50.0
+        ],
+        "model.layers.1.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.1.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.1.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.1.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.1.mlp.gate_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.1.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.1.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.2.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.2.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.2.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.2.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.2.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.2.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          40.0
+        ],
+        "model.layers.2.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.3.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.3.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.3.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.3.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.3.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.3.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.3.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.4.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.4.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.4.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.4.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.4.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.4.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.4.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.5.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.5.self_attn.k_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.5.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.5.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.5.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.5.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.5.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.6.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.6.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.6.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.6.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.6.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.6.mlp.up_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.6.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.7.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.7.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.7.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.7.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.7.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.7.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.7.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.8.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.8.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.8.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.8.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.8.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.8.mlp.up_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.8.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.9.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.9.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.9.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.9.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.9.mlp.gate_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.9.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.9.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.10.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.10.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.10.self_attn.v_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.10.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.10.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.10.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.10.mlp.down_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.11.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.11.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.11.self_attn.v_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.11.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.11.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.11.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.11.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.12.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.12.self_attn.k_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.12.self_attn.v_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.12.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.12.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.12.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.12.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.13.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          14.5
+        ],
+        "model.layers.13.self_attn.k_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.13.self_attn.v_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.13.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.13.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.13.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.13.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "model.layers.14.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.14.self_attn.k_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.14.self_attn.v_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.14.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.14.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.14.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.14.mlp.down_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.15.self_attn.q_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.15.self_attn.k_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.15.self_attn.v_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.15.self_attn.o_proj": [
+          3.5,
+          6.0,
+          14.5,
+          25.0
+        ],
+        "model.layers.15.mlp.gate_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.15.mlp.up_proj": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ],
+        "model.layers.15.mlp.down_proj": [
+          3.5,
+          6.0,
+          14.5,
+          40.0
+        ],
+        "lm_head": [
+          3.5,
+          4.5,
+          6.0,
+          25.0
+        ]
+      },
+      "evaluation": {
+        "total_nll": 695990.2042984962,
+        "mean_nll_per_predicted_token": 2.411382872352539,
+        "perplexity": 11.149368642953123,
+        "predicted_token_count": 288627,
+        "chunk_count": 141,
+        "context_length": 2048,
+        "peak_cuda_memory_allocated_bytes": 3065158144,
+        "peak_cuda_memory_reserved_bytes": 15416164352
+      },
+      "elapsed_seconds": 146.44824779999908,
+      "row_count_derived_from_pinned_config": 505088,
+      "e8_block_count_derived_from_pinned_config": 154468352,
+      "storage_estimate_posthoc": {
+        "status": "estimate_only_no_packed_tensor_written",
+        "assumptions": "q-ary residues fixed-width packed at 4 bits each; beta IDs fixed-width packed; FP32 row norms and per-layer beta tables; 32-bit q and 64-bit dither seed; ignores alignment and container headers",
+        "residue_code_bits": 4942987264,
+        "beta_index_bits": 308936704,
+        "row_norm_metadata_bits": 16162816,
+        "beta_table_metadata_bits": 14464,
+        "run_metadata_bits": 96,
+        "total_bits": 5268101344,
+        "estimated_bytes": 658512668,
+        "effective_bits_per_quantized_parameter": 4.263091173524011,
+        "ideal_arithmetic_code_bits_per_residue": 3.807354922057604,
+        "note": "Entropy/arithmetic coding of q-ary residues could reduce code payload; no such coder exists in this project yet."
+      }
+    }
+  },
+  "current_method": null,
+  "data": {
+    "text_sha256": "696cca6b65a171b0a358a4be6732cdfdf2dd6164a32e20fd70e3c13fc4dfae83",
+    "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+    "token_count_with_boundary_tokens": 289078,
+    "chunk_count": 141,
+    "predicted_token_count": 288627,
+    "dropped_tail_tokens": 310,
+    "bos_token_id": 128000,
+    "eos_token_id": 128001,
+    "dataset_rows": 4358
+  },
+  "finished_at_utc": "2026-10-14T04:14:32.835193+00:00",
+  "model_architecture_posthoc": {
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "config_sha256": "bfb5d39c327ee5c3a65e3574596ff30b052a445cfc59a25bdf3b4c0c5a44f4d2",
+    "tie_word_embeddings": true,
+    "runtime_pointer_alias_was_logged_in_original_run": false,
+    "interpretation": "The pinned config declares tied input/output embeddings. The adapters quantize lm_head in place, so the shared input embedding matrix is also affected; this was not recorded in the original run log and is derived post hoc from config plus adapter behavior."
+  },
+  "posthoc_rate_accounting": {
+    "analysis_file": "llama32_1b_w4_rate_accounting.md",
+    "status": "derived_estimate_not_measured_storage",
+    "source": "original adapter counts plus the pinned model config; no original metrics or config hash changed",
+    "nestquant_ideal_arithmetic_code_scenario": {
+      "status": "theoretical_scenario_not_implemented",
+      "total_bits": 5030040802.314612,
+      "estimated_bytes": 628755101,
+      "effective_bits_per_quantized_parameter": 4.070446095581615
+    }
+  }
+}

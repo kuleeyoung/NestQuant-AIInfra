@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Local model and dataset caches; never commit gated weights or datasets.
+models/
+data/
+cache/
+artifacts/
+.cache/
+
+# Local run products; retain small, reviewed summaries under results/.
+results/raw/
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+
+# Secrets and local tools
+.env
+.env.*
+*.pem
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
