@@ -7,11 +7,13 @@ dist/
 .venv/
 venv/
 
-# Local model and dataset caches; never commit gated weights or datasets.
-models/
-data/
-cache/
-artifacts/
+# Local model and dataset caches at the repository root; never commit gated
+# weights or datasets. Leading slashes keep source packages such as
+# nestquant/models and tests/unit/models trackable.
+/models/
+/data/
+/cache/
+/artifacts/
 .cache/
 
 # Local run products; retain small, reviewed summaries under results/.

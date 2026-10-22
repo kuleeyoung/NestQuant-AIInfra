@@ -15,7 +15,7 @@ nestquant-summarize-ppl = "nestquant.evaluation.result_summary:main"
 
 [project.optional-dependencies]
 evaluation = ["transformers>=4.45", "datasets>=3.0", "huggingface-hub>=0.25", "safetensors>=0.4"]
-dev = []
+dev = ["transformers>=4.45"]
 
 [tool.setuptools.packages.find]
 include = ["nestquant*"]
