@@ -68,7 +68,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 89 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合与进度回调、共享校准清单、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 95 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
@@ -81,6 +81,17 @@ python scripts/evaluate_llama_wikitext_ppl.py --device cuda --offline
 ```
 
 一个窗口的 smoke 可增加 `--limit-chunks 1`，但不能当作完整 PPL。原始运行产物默认写入被 Git 忽略的 `results/raw/`。
+
+推荐先使用统一入口查看、检查和校验整个复现流程：
+
+```bash
+python scripts/run_reproduction.py --stage plan
+python scripts/run_reproduction.py --stage smoke
+python scripts/run_reproduction.py --stage validate --require-raw-evidence
+python scripts/run_reproduction.py --stage full --dry-run
+```
+
+完整 Llama 复现带有显式确认保护和产物级断点续跑。各阶段含义、正式命令与结果校验规则见 [统一复现工作流](docs/reproduction_workflow.md)。
 
 正式校准窗口固定在 [`configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json`](configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json)。该文件保存 128 个窗口的起点、逐窗口 token 哈希和总哈希；NestQuant Hessian 与 QuaRot 兼容入口都支持 `--calibration-manifest`，并在运行前验证模型、数据 revision、tokenization 和完整 train token 流。重新生成时应使用一个不存在的输出路径，因为生成器会拒绝静默覆盖正式清单：
 

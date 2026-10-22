@@ -12,6 +12,7 @@ dependencies = ["torch>=2.1", "numpy>=1.24"]
 [project.scripts]
 nestquant-eval-ppl = "nestquant.experiments.llm_perplexity:main"
 nestquant-summarize-ppl = "nestquant.evaluation.result_summary:main"
+nestquant-reproduce = "nestquant.experiments.reproduction:main"
 
 [project.optional-dependencies]
 evaluation = ["transformers>=4.45", "datasets>=3.0", "huggingface-hub>=0.25", "safetensors>=0.4"]

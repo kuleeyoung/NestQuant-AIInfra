@@ -38,3 +38,7 @@ Implemented the public QA weight adjustment, 20-train-chunk activation second-mo
 ## QA-LDLQ scale audit completion (2026-10-22)
 
 The public Hessian divides the token Gram matrix by sequence count, while the local collector divides by activation-row count. At context length 2048 this created a 2048x normalization mismatch. A bounded representative-layer sweep showed that C=155 caused up to 73.7% weight adjustment and 9.07x proxy loss; corrected candidates removed the outlier. Full C=634880 results were W4 10.283140 and W4A4KV4 11.584234 versus ordinary LDLQ 10.276601 and 11.578171. The large regression was explained and removed, but no quality gain remained, so the QA route is closed without post-hoc wider tuning.
+
+## Unified reproduction workflow (2026-10-22)
+
+The versioned [`reproduction.v1.json`](../configs/reproduction.v1.json) and `nestquant-reproduce` entry point now connect preflight, unit/toy smoke, the six-step shared128 Llama matrix, reviewed-result validation, and raw-evidence validation. Full execution requires CUDA plus an exact confirmation phrase; completed artifact sets are skipped for resumability. The workflow was exercised on WSL2/RTX 5070: preflight, 95 tests, toy smoke, full dry-run planning, and all four existing raw-manifest protocol checks passed. See [the workflow guide](reproduction_workflow.md).
