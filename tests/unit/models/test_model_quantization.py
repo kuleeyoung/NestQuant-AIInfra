@@ -49,6 +49,30 @@ class TestModelQuantization(unittest.TestCase):
         self.assertTrue(torch.equal(restored_artifact.dequantize(), model[0].weight.detach()))
         self.assertLess(len(restored_artifact.dither_generator_state), 8192)
 
+    def test_nestquant_can_preserve_an_exact_linear_name(self):
+        model = nn.Sequential(nn.Linear(16, 4, bias=False), nn.Linear(4, 8, bias=False))
+        before_first = model[0].weight.detach().clone()
+        before_second = model[1].weight.detach().clone()
+        stats = quantize_nestquant_w4_(
+            model, q=14,
+            beta_coefficients=(3.0, 4.5, 6.0, 10.0, 15.0),
+            selected_beta_count=4, seed=58, rows_per_chunk=2,
+            excluded_linear_names=("1",),
+        )
+        self.assertFalse(torch.equal(before_first, model[0].weight))
+        self.assertTrue(torch.equal(before_second, model[1].weight))
+        self.assertEqual(stats["layers"], 1)
+        self.assertEqual(stats["excluded_linear_names"], ["1"])
+
+    def test_nestquant_rejects_unknown_linear_exclusion(self):
+        model = nn.Sequential(nn.Linear(16, 4, bias=False))
+        with self.assertRaisesRegex(ValueError, "unknown excluded Linear"):
+            quantize_nestquant_w4_(
+                model, q=14,
+                beta_coefficients=(3.0, 4.5, 6.0, 10.0, 15.0),
+                selected_beta_count=4, excluded_linear_names=("lm_head",),
+            )
+
     def test_ldlq_codes_export_and_reconstruct_without_hessian(self):
         model = nn.Sequential(nn.Linear(16, 4, bias=False))
         artifacts = {}

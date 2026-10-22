@@ -47,7 +47,7 @@ NestQuant W4 使用 64 个训练窗口的 8-column E8 block-LDLQ checkpoint；A4
 
 ## 如何解释结果
 
-QuaRot W4 只比 NestQuant W4 高 0.231745 PPL，因此不能说当前优势主要来自权重量化。差异主要出现在 A4/KV4：QuaRot 从 W4 到 W4A4KV4 增加 10.587239 PPL，NestQuant 增加 1.301570。当前证据指向 E8 向量量化、多 beta 选择及各自激活/KV 处理方式对低比特激活质量的差异。
+补充的共享校准、同范围实验中，NestQuant 保留 `lm_head` BF16 后 PPL 为 10.211760，QuaRot GPTQ W4 为 10.508346，差值为 0.296586。完整配置的更大差异仍主要出现在 A4/KV4：QuaRot 从 W4 到 W4A4KV4 增加 10.587239 PPL，NestQuant 旧 train64 结果增加 1.301570。共享校准的 W4A4、W4KV4 和 W4A4KV4 尚待重跑，不能把旧完整配置结果描述成全部校准条件已经对齐。
 
 A4 是 QuaRot 移植版的主要误差来源：W4A4 比 W4 增加 5.341988，而 W4KV4 增加 1.760784。A4 与 KV4 同时启用时还有叠加误差，不能把总退化简单分摊给单一模块。
 
@@ -55,9 +55,9 @@ A4 是 QuaRot 移植版的主要误差来源：W4A4 比 W4 增加 5.341988，而
 
 两条路线共享模型、测试数据、token 流和 PPL 聚合器，但内部量化器并不相同：
 
-- QuaRot 使用官方 GPTQ 标量 W4，保留 `lm_head` 为 BF16；NestQuant 使用 E8 block-LDLQ，并量化 `lm_head`。
+- QuaRot 使用官方 GPTQ 标量 W4；NestQuant 使用 E8 block-LDLQ。项目现同时报告量化 `lm_head` 与保留 `lm_head` BF16 的 NestQuant 结果，其中后者用于 W4 同范围比较。
 - QuaRot A/K/V 是对称 per-token 标量 4-bit fake quant；NestQuant A/K/V 是 8 维 E8 嵌套格、多 beta fake quant。
-- QuaRot 使用 128 个随机训练窗口；NestQuant block-LDLQ checkpoint 使用 64 个顺序训练窗口。
+- 新增 W4 对照已让两者共享同一批 128 个随机训练窗口；旧 W4A4/KV4 完整矩阵仍基于 NestQuant train64 checkpoint。
 - QuaRot 官方仓库没有原生支持 Llama-3.2-1B。本结果来自明确记录的兼容移植：纯 PyTorch Hadamard fallback、GQA 修复、共享 embedding/lm_head 修复和 Transformers 4.46 GPTQ 设备修复。
 - 两者的运行时 A/K/V 张量都以浮点重构形式参与计算。该实验衡量质量，不衡量真实低比特存储或 kernel 加速。
 
@@ -71,4 +71,6 @@ A4 是 QuaRot 移植版的主要误差来源：W4A4 比 W4 增加 5.341988，而
 - `results/raw/quarot_official_gptq128_w4a4_full_20261022.json`
 - `results/raw/quarot_official_gptq128_w4a4kv4_full_20261022.json`
 - `results/raw/llama32_1b_w4a4kv4_upstream_betas_batch4_full_20261021.json`
+- `results/raw/llama32_1b_nestquant_w4_shared128_full_20261022.json`
+- `results/raw/llama32_1b_nestquant_w4_shared128_no_lm_head_full_20261022.json`
 - `external_patches/quarot_llama32_pytorch_fallback.patch`

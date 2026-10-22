@@ -69,6 +69,7 @@ def quantize_nestquant_w4_(
     activation_variance_provider: Callable[[str], tuple[str, float] | None] | None = None,
     qa_epsilon_constant: float = 155.0,
     ldlq_relative_damp: float = 0.01,
+    excluded_linear_names: Sequence[str] = (),
 ) -> dict:
     """In-place NestQuant-style W4 quality simulation for every Linear weight.
 
@@ -90,6 +91,9 @@ def quantize_nestquant_w4_(
         raise ValueError("selected_beta_count must fit the candidate set")
     if rows_per_chunk < 1:
         raise ValueError("rows_per_chunk must be positive")
+    excluded_names = frozenset(excluded_linear_names)
+    if any(not isinstance(name, str) or not name for name in excluded_names):
+        raise ValueError("excluded_linear_names must contain non-empty strings")
     if rotation_seed is not None:
         if output_artifacts is not None:
             raise ValueError("rotated weights require rotation metadata; NQRT export is not supported yet")
@@ -125,6 +129,7 @@ def quantize_nestquant_w4_(
              "rows_per_chunk": rows_per_chunk, "layers": 0, "parameters": 0,
              "row_count": 0, "e8_block_count": 0, "layer_beta_subsets": {},
              "layer_timings": {},
+             "excluded_linear_names": sorted(excluded_names),
              "input_embedding_weight_shared_with_linear": False}
     input_embedding_weight = _input_embedding_weight(model)
     replacements = []
@@ -137,7 +142,13 @@ def quantize_nestquant_w4_(
     cached_qa_key = None
     cached_qa_cholesky = None
     cached_qa_hessian = None
-    total_layers = sum(isinstance(module, nn.Linear) for module in model.modules())
+    available_linear_names = {
+        name for name, module in model.named_modules() if isinstance(module, nn.Linear)
+    }
+    unknown_exclusions = excluded_names - available_linear_names
+    if unknown_exclusions:
+        raise ValueError(f"unknown excluded Linear modules: {sorted(unknown_exclusions)}")
+    total_layers = len(available_linear_names - excluded_names)
     def elapsed_since(started: float, device: torch.device) -> float:
         if device.type == "cuda":
             torch.cuda.synchronize(device)
@@ -145,6 +156,8 @@ def quantize_nestquant_w4_(
 
     for name, module in model.named_modules():
         if not isinstance(module, nn.Linear):
+            continue
+        if name in excluded_names:
             continue
         original = module.weight.data
         layer_started = time.perf_counter()

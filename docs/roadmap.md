@@ -27,7 +27,9 @@
 
 ## Shared calibration protocol (2026-10-22)
 
-The versioned 128-window WikiText-2 train calibration manifest is now implemented and consumed by both the NestQuant Hessian collector and the QuaRot compatibility runner. It records model/data revisions, tokenization, seed, every start index, every window hash, the full train-token hash, and the combined selected-token hash. The combined hash `358a77b4...90bb` and all 128 starts match the existing formal QuaRot runs. A real one-window Llama-3.2-1B Hessian smoke completed successfully. The next costly step is full all-layer 128-window Hessian recalibration; prior train64 results remain valid historical results but are not yet a same-calibration comparison.
+The versioned 128-window WikiText-2 train calibration manifest is now implemented and consumed by both the NestQuant Hessian collector and the QuaRot compatibility runner. It records model/data revisions, tokenization, seed, every start index, every window hash, the full train-token hash, and the combined selected-token hash. The combined hash `358a77b4...90bb` and all 128 starts match the existing formal QuaRot runs. A real one-window Llama-3.2-1B Hessian smoke completed successfully before the full run. Prior train64 results remain valid historical results but are no longer used as the primary W4 comparison.
+
+The full all-layer 128-window Hessian recalibration and WikiText-2 W4 evaluation are now complete. NestQuant block-LDLQ W4 scored 10.277472 when quantizing all 113 Linear layers and 10.211760 when retaining `lm_head` in BF16. The latter aligns calibration tokens, test tokens, and `lm_head` scope with the QuaRot compatibility GPTQ W4 result 10.508346. See [the reviewed comparison](../results/llama32_1b_shared_calibration_w4.md). Shared-calibration A4/KV4 variants remain pending.
 
 ## QA-LDLQ stage result (2026-10-22)
 

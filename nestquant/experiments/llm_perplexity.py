@@ -41,6 +41,8 @@ def main() -> None:
     parser.add_argument("--q", type=int, default=14)
     parser.add_argument("--beta-count", type=int, default=4)
     parser.add_argument("--rows-per-chunk", type=int, default=512)
+    parser.add_argument("--exclude-linear", nargs="*", default=(),
+                        help="exact nn.Linear names to retain in floating point")
     parser.add_argument("--rotation-seed", type=int, default=None,
                         help="enable signed-Hadamard weight-space ablation for NestQuant only")
     parser.add_argument("--ldlq-hessian-dir", type=Path, default=None,
@@ -122,6 +124,8 @@ def main() -> None:
         raise ValueError(
             "--ldlq-hessian-dir requires only nestquant_w4 and no checkpoint loading"
         )
+    if args.exclude_linear and methods != ["nestquant_w4"]:
+        raise ValueError("--exclude-linear requires only nestquant_w4")
     if args.ldlq_calibration_chunks < 1 or args.ldlq_relative_damp < 0:
         raise ValueError("invalid LDLQ calibration chunk count or damping")
     if args.qa_variance_file is not None:
@@ -163,6 +167,7 @@ def main() -> None:
               "beta_grid_note": experiment["beta_grid_note"],
               "selected_beta_count": beta_count, "rtn_group_size": rtn_group_size,
               "rows_per_chunk": rows_per_chunk,
+              "excluded_linear_names": sorted(set(args.exclude_linear)),
               "dither_rng_device": "cpu",
               "weight_rotation": "none" if args.rotation_seed is None else "signed_hadamard_inverse_weight",
               "rotation_seed": args.rotation_seed,
@@ -224,7 +229,7 @@ def main() -> None:
                    "The --use-cache control follows the same DynamicCache attention path without quantizing K/V, separating cache-path numerical effects from KV4 error.",
                    "NestQuant subtractive dither is generated from a CPU RNG stream so per-layer generator states can be serialized and regenerated independent of the model execution device.",
                    "Model beta candidates are [3.5, 4.5, 6.0, 14.5, 25.0, 40.0, 50.0]. Paper Appendix G reports a search universe through 40.0/q and a selected list through 25.0/q; this project adds 40.0 to the selected candidates and extends the reported universe with 50.0.",
-                   "All Linear layers including lm_head are quantized. If lm_head shares its parameter storage with input embeddings, both names refer to the same quantized matrix; verify model config and aliases before claiming embeddings remain BF16.",
+                   "Linear quantization scope is recorded in config.excluded_linear_names. When lm_head is quantized and shares parameter storage with input embeddings, both names refer to the same quantized matrix.",
                    "NQMC stores packed W4 codes and dense non-Linear tensors. Evaluation dequantizes weights into BF16 model storage; no low-bit inference acceleration is measured.",
                ], "results": {}, "current_method": None}
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -347,6 +352,7 @@ def main() -> None:
                             qa_epsilon_constant=args.qa_epsilon_constant,
                             ldlq_relative_damp=args.ldlq_relative_damp,
                             ldlq_checkpoint_metadata=ldlq_checkpoint_metadata,
+                            excluded_linear_names=args.exclude_linear,
                         ))
                         if hessian_store is not None:
                             method_stats["ldlq_calibration"] = ldlq_checkpoint_metadata
@@ -475,6 +481,7 @@ def _quantize_and_optionally_export(
     qa_epsilon_constant=155.0,
     ldlq_relative_damp=0.01,
     ldlq_checkpoint_metadata=None,
+    excluded_linear_names=(),
 ) -> dict:
     packed_tensors: dict = {}
     payload["quantization_progress"] = {"completed_layers": 0, "layer_timings": {}}
@@ -503,6 +510,7 @@ def _quantize_and_optionally_export(
         activation_variance_provider=activation_variance_provider,
         qa_epsilon_constant=qa_epsilon_constant,
         ldlq_relative_damp=ldlq_relative_damp,
+        excluded_linear_names=excluded_linear_names,
     )
     payload.pop("quantization_progress", None)
     if export_path is None:

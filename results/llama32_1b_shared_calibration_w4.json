@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "model": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "calibration": {
+    "samples": 128,
+    "context_length": 2048,
+    "token_count": 262144,
+    "token_ids_sha256": "358a77b403d372a11957df15dbf46ef3e6f54025d315eaf3514c40bd561d90bb"
+  },
+  "evaluation": {
+    "chunks": 141,
+    "predicted_tokens": 288627,
+    "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567"
+  },
+  "results": {
+    "nestquant_block_ldlq_w4_all_linear": {
+      "perplexity": 10.277472118254176,
+      "mean_nll": 2.3299543268943825,
+      "quantized_linear_count": 113,
+      "quantized_parameters": 1235746816
+    },
+    "nestquant_block_ldlq_w4_bf16_lm_head": {
+      "perplexity": 10.211759713549691,
+      "mean_nll": 2.3235399692894116,
+      "quantized_linear_count": 112,
+      "quantized_parameters": 973078528,
+      "excluded_linear_names": ["lm_head"]
+    },
+    "quarot_compat_gptq_w4_bf16_lm_head": {
+      "perplexity": 10.508346107841426
+    }
+  },
+  "derived": {
+    "lm_head_quantization_ppl_cost": 0.065712404704485,
+    "aligned_nestquant_minus_quarot_ppl": -0.296586394291735,
+    "aligned_nestquant_relative_ppl_reduction_percent": 2.822388901621916
+  },
+  "evidence": [
+    "results/raw/llama32_1b_nestquant_w4_shared128_full_20261022.json",
+    "results/raw/llama32_1b_nestquant_w4_shared128_no_lm_head_full_20261022.json",
+    "results/raw/quarot_official_gptq128_w4_full_20261022.json"
+  ]
+}

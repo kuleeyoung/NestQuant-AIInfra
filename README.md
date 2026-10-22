@@ -20,6 +20,8 @@
 | RTN W4 | 13.023722 | 对称 group-wise RTN 基线 |
 | NestQuant 普通 W4 | 11.202577 | E8 嵌套格、多 beta |
 | NestQuant block-LDLQ W4 | 10.276601 | 64 个训练窗口校准 |
+| NestQuant block-LDLQ W4，共享校准 | 10.277472 | 与 QuaRot 相同的 128 个随机训练窗口；量化 `lm_head` |
+| NestQuant block-LDLQ W4，同范围 | **10.211760** | 128 个共享窗口；与 QuaRot 一样保留 `lm_head` BF16 |
 | NestQuant W4KV4 | 10.732014 | E8 post-RoPE K/V fake quant |
 | NestQuant W4A4KV4 | **11.578171** | E8 权重、激活与 KV 质量仿真 |
 | QuaRot 兼容移植 GPTQ W4 | 10.508346 | 官方关键 GPTQ 参数，128 个校准窗口 |
@@ -27,7 +29,7 @@
 
 QuaRot 官方仓库没有原生支持 Llama-3.2-1B。这里的对照是明确记录的兼容移植：增加纯 PyTorch Hadamard fallback，修复 GQA K-cache reshape、共享 embedding/lm_head 和 Transformers 4.46 GPTQ 设备放置。它不是官方 CUDA kernel 复现。
 
-完整解释见 [NestQuant 与 QuaRot 对照报告](results/llama32_1b_quarot_comparison.md)。
+完整解释见 [共享校准与同范围 W4 对照](results/llama32_1b_shared_calibration_w4.md)和 [NestQuant 与 QuaRot 全矩阵报告](results/llama32_1b_quarot_comparison.md)。
 
 ## 实现内容
 
@@ -65,7 +67,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 86 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合、共享校准清单和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 88 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合、共享校准清单、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
@@ -105,7 +107,7 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         86 项分层单元测试
+tests/unit/         88 项分层单元测试
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁

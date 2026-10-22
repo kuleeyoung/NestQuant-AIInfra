@@ -30,5 +30,7 @@ W4A4KV4 已完成 batch=4 的同源递进实验；W4、W4KV4、W4A4KV4 的完整
 
 QuaRot 已完成 Llama-3.2-1B 兼容移植和同一测试 token 流的完整质量对照。旋转 BF16、GPTQ W4、W4KV4、W4A4、W4A4KV4 PPL 分别为 9.762884、10.508346、12.269130、15.850334、21.095586；实现修复、协议差异和可陈述边界见 [NestQuant 与 QuaRot 对照](llama32_1b_quarot_comparison.md)。
 
+NestQuant 与 QuaRot 的 W4 已进一步对齐到相同的 128 个校准窗口和 BF16 `lm_head` 范围。NestQuant block-LDLQ W4 PPL 为 10.211760，QuaRot 兼容移植 GPTQ W4 为 10.508346；配置、哈希、范围差异和证据边界见 [共享校准与同范围 W4 对照](llama32_1b_shared_calibration_w4.md)。
+
 
 The complete negative W4 and W4A4KV4 QA-LDLQ ablation, protocol differences, and raw-manifest index are in [the QA-LDLQ report](llama32_1b_qa_ldlq_ablation.md).
