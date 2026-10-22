@@ -184,6 +184,14 @@ def block_unit_lower_ldl(
             root.T, column.T, upper=True
         ).T
         lower[start:, start:end] = normalized
+        # The normalized diagonal block is mathematically the identity.  Some
+        # CPU LAPACK implementations leave small solve residuals that can make
+        # a later structural check backend-dependent, so encode the defining
+        # block-unit structure explicitly.
+        lower[start:end, start:end] = torch.eye(
+            block_size, dtype=lower.dtype, device=lower.device
+        )
+    lower = torch.tril(lower)
     return lower, diagonal_blocks, damping
 
 
