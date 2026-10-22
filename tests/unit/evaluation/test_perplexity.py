@@ -86,6 +86,15 @@ class TestPerplexity(unittest.TestCase):
         self.assertEqual(len(caches), 2)
         self.assertTrue(all(cache.used for cache in caches))
 
+    def test_reports_completed_chunk_progress_after_each_batch(self):
+        progress = []
+        evaluate_perplexity(
+            UniformLogitModel(), [value % 10 for value in range(15)],
+            context_length=3, device="cpu", batch_size=2,
+            progress_callback=lambda completed, total: progress.append((completed, total)),
+        )
+        self.assertEqual(progress, [(2, 5), (4, 5), (5, 5)])
+
 
 if __name__ == "__main__":
     unittest.main()

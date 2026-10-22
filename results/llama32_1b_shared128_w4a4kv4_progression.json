@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "reviewed",
+  "model": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "dataset": "Salesforce/wikitext/wikitext-2-raw-v1",
+  "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "context_length": 2048,
+  "calibration_windows": 128,
+  "calibration_token_ids_sha256": "358a77b403d372a11957df15dbf46ef3e6f54025d315eaf3514c40bd561d90bb",
+  "test_chunks": 141,
+  "predicted_token_count": 288627,
+  "test_token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "weight_scope": "112 Linear weights; lm_head retained in BF16",
+  "nestquant": {
+    "w4": {"perplexity": 10.211759713549691, "mean_nll": 2.3235399692894116},
+    "w4kv4": {"perplexity": 10.668993757030108, "mean_nll": 2.3673417550587272},
+    "w4a4": {"perplexity": 10.952031980323573, "mean_nll": 2.3935250080260384},
+    "w4a4kv4": {"perplexity": 11.504095755083945, "mean_nll": 2.4427031245779114}
+  },
+  "ablation": {
+    "kv4_delta_from_w4": 0.457234043480417,
+    "a4_delta_from_w4": 0.740272266773882,
+    "combined_delta_from_w4": 1.292336041534254,
+    "additive_expected_ppl": 11.40926602380399,
+    "a4_kv4_interaction_ppl": 0.094829731279955
+  },
+  "quarot_compatibility_port": {
+    "w4": {"perplexity": 10.508346107841426},
+    "w4kv4": {"perplexity": 12.269129618240681},
+    "w4a4": {"perplexity": 15.850333948543403},
+    "w4a4kv4": {"perplexity": 21.095585597749874}
+  },
+  "nqmc_checkpoint": {
+    "bytes": 1044557140,
+    "sha256": "5eb8dd042887aaacb6b1c2d619019e50c422c868d06ed60fc668d1b69239713e",
+    "in_memory_ppl": 10.211759713549691,
+    "export_reload_ppl": 10.211759713549691,
+    "independent_load_only_ppl": 10.211759713549691
+  },
+  "evidence_boundary": "A4 and KV4 are fake-quant quality simulations; NQMC is packed W4 storage reloaded into floating-point Linear execution; no low-bit kernel speed claim."
+}

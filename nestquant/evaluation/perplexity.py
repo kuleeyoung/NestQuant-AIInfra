@@ -71,6 +71,7 @@ def evaluate_perplexity(
     logit_chunk_size: int = 32,
     cache_factory: Callable[[], object] | None = None,
     batch_size: int = 1,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict:
     """Compute exact aggregated next-token NLL over complete non-overlap chunks.
 
@@ -110,6 +111,8 @@ def evaluate_perplexity(
         # Synchronize once per context batch rather than once per logit slice.
         total_nll += chunk_nll
         del output, logits, input_ids, cache
+        if progress_callback is not None:
+            progress_callback(min(batch_start + batch_size, chunks), chunks)
     total_nll_value = float(total_nll.item())
     mean_nll = total_nll_value / predicted
     ppl = math.exp(mean_nll)

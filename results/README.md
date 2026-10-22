@@ -32,5 +32,7 @@ QuaRot 已完成 Llama-3.2-1B 兼容移植和同一测试 token 流的完整质�
 
 NestQuant 与 QuaRot 的 W4 已进一步对齐到相同的 128 个校准窗口和 BF16 `lm_head` 范围。NestQuant block-LDLQ W4 PPL 为 10.211760，QuaRot 兼容移植 GPTQ W4 为 10.508346；配置、哈希、范围差异和证据边界见 [共享校准与同范围 W4 对照](llama32_1b_shared_calibration_w4.md)。
 
+共享校准和 BF16 `lm_head` 范围下的 NestQuant W4/W4KV4/W4A4/W4A4KV4 已全部完成，PPL 分别为 10.211760、10.668994、10.952032、11.504096。相同校准及测试哈希下的 QuaRot 兼容移植四项结果也已核对；完整单因素、组合交互、NQMC 三路回载一致性和证据边界见 [共享校准递进报告](llama32_1b_shared128_w4a4kv4_progression.md)。
+
 
 The complete negative W4 and W4A4KV4 QA-LDLQ ablation, protocol differences, and raw-manifest index are in [the QA-LDLQ report](llama32_1b_qa_ldlq_ablation.md).

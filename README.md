@@ -22,14 +22,15 @@
 | NestQuant block-LDLQ W4 | 10.276601 | 64 个训练窗口校准 |
 | NestQuant block-LDLQ W4，共享校准 | 10.277472 | 与 QuaRot 相同的 128 个随机训练窗口；量化 `lm_head` |
 | NestQuant block-LDLQ W4，同范围 | **10.211760** | 128 个共享窗口；与 QuaRot 一样保留 `lm_head` BF16 |
-| NestQuant W4KV4 | 10.732014 | E8 post-RoPE K/V fake quant |
-| NestQuant W4A4KV4 | **11.578171** | E8 权重、激活与 KV 质量仿真 |
+| NestQuant W4KV4，共享校准 | 10.668994 | 同一 NQMC W4；E8 post-RoPE K/V fake quant |
+| NestQuant W4A4，共享校准 | 10.952032 | 同一 NQMC W4；E8 Linear 输入 fake quant |
+| NestQuant W4A4KV4，共享校准 | **11.504096** | 同一 NQMC W4；激活与 KV 质量仿真 |
 | QuaRot 兼容移植 GPTQ W4 | 10.508346 | 官方关键 GPTQ 参数，128 个校准窗口 |
 | QuaRot 兼容移植 W4A4KV4 | 21.095586 | 标量 per-token A/K/V fake quant |
 
 QuaRot 官方仓库没有原生支持 Llama-3.2-1B。这里的对照是明确记录的兼容移植：增加纯 PyTorch Hadamard fallback，修复 GQA K-cache reshape、共享 embedding/lm_head 和 Transformers 4.46 GPTQ 设备放置。它不是官方 CUDA kernel 复现。
 
-完整解释见 [共享校准与同范围 W4 对照](results/llama32_1b_shared_calibration_w4.md)和 [NestQuant 与 QuaRot 全矩阵报告](results/llama32_1b_quarot_comparison.md)。
+完整解释见 [共享校准 W4/A4/KV4 递进实验](results/llama32_1b_shared128_w4a4kv4_progression.md)、[共享校准与同范围 W4 对照](results/llama32_1b_shared_calibration_w4.md)和 [NestQuant 与 QuaRot 全矩阵报告](results/llama32_1b_quarot_comparison.md)。
 
 ## 实现内容
 
@@ -67,7 +68,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 88 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合、共享校准清单、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 89 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合与进度回调、共享校准清单、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 

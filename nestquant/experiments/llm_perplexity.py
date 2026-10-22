@@ -423,9 +423,21 @@ def main() -> None:
 
                 cache_factory = partial(DynamicCache, config=model.config)
                 method_stats["evaluation_cache_control"] = "floating_dynamic_cache"
+            last_reported_chunk = 0
+
+            def report_evaluation_progress(completed: int, total: int) -> None:
+                nonlocal last_reported_chunk
+                if completed == total or completed - last_reported_chunk >= 10:
+                    print(
+                        f"[{method}] evaluation progress: {completed}/{total} chunks",
+                        flush=True,
+                    )
+                    last_reported_chunk = completed
+
             measurement = evaluate_perplexity(
                 model, corpus_tokens, context_length=context_length, device=device,
                 cache_factory=cache_factory, batch_size=args.eval_batch_size,
+                progress_callback=report_evaluation_progress,
             )
             if cache_stats is not None:
                 method_stats["kv_cache_quantization"] = cache_stats.summary()
