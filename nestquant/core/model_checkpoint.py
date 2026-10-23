@@ -10,8 +10,12 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import os
+from pathlib import Path
+import shutil
 import struct
 import sys
+import tempfile
 from typing import Mapping
 
 import torch
@@ -141,6 +145,79 @@ class PackedNestQuantModel:
             "payload_sha256": hashlib.sha256(payload).hexdigest(),
         }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         return _HEADER.pack(_MAGIC, _VERSION, len(manifest), len(payload)) + manifest + payload
+
+    def write_to_file(self, path: str | Path) -> None:
+        """Write NQMC atomically while retaining at most one tensor blob in memory."""
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload_path = None
+        output_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=destination.parent, prefix=f".{destination.name}.payload.",
+                delete=False,
+            ) as payload_stream:
+                payload_path = Path(payload_stream.name)
+                entries = []
+                payload_offset = 0
+                digest = hashlib.sha256()
+                all_names = set(self.dense_tensors) | set(self.quantized_tensors)
+                if all_names & set(self.aliases):
+                    raise ValueError("alias names cannot also be stored tensor names")
+                for name in sorted(self.dense_tensors):
+                    tensor = self.dense_tensors[name]
+                    if tensor.layout != torch.strided or tensor.dtype not in _DTYPE_TO_NAME:
+                        raise ValueError(f"unsupported dense tensor layout or dtype: {name}")
+                    blob = _tensor_to_bytes(tensor)
+                    expected = tensor.numel() * tensor.element_size()
+                    if len(blob) != expected:
+                        raise ValueError(f"dense tensor payload has invalid byte length: {name}")
+                    entries.append({"name": name, "kind": "dense", "offset": payload_offset,
+                                    "length": len(blob), "shape": list(tensor.shape),
+                                    "dtype": _DTYPE_TO_NAME[tensor.dtype]})
+                    payload_stream.write(blob)
+                    digest.update(blob)
+                    payload_offset += len(blob)
+                    del blob
+                for name in sorted(self.quantized_tensors):
+                    record = self.quantized_tensors[name]
+                    if record.tensor_name != name:
+                        raise ValueError(f"quantized record name mismatch: {name}")
+                    blob = record.to_bytes()
+                    entries.append({"name": name, "kind": "nestquant", "offset": payload_offset,
+                                    "length": len(blob),
+                                    "shape": [record.indices.shape[0], record.feature_count],
+                                    "dtype": _DTYPE_TO_NAME[record.output_dtype]})
+                    payload_stream.write(blob)
+                    digest.update(blob)
+                    payload_offset += len(blob)
+                    del blob
+
+            manifest = json.dumps({
+                "format": "NQMC", "version": _VERSION,
+                "entries": entries, "aliases": dict(self.aliases),
+                "model_metadata": dict(self.model_metadata),
+                "payload_sha256": digest.hexdigest(),
+            }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=destination.parent, prefix=f".{destination.name}.output.",
+                delete=False,
+            ) as output_stream:
+                output_path = Path(output_stream.name)
+                output_stream.write(_HEADER.pack(
+                    _MAGIC, _VERSION, len(manifest), payload_offset
+                ))
+                output_stream.write(manifest)
+                with payload_path.open("rb") as payload_stream:
+                    shutil.copyfileobj(payload_stream, output_stream, length=8 * 1024 * 1024)
+                output_stream.flush()
+                os.fsync(output_stream.fileno())
+            os.replace(output_path, destination)
+            output_path = None
+        finally:
+            for temporary in (payload_path, output_path):
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
 
     @classmethod
     def from_bytes(cls, data: bytes | bytearray | memoryview) -> "PackedNestQuantModel":

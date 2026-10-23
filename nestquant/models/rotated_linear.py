@@ -12,11 +12,25 @@ from torch.nn import functional as F
 from ..core.rotation import hadamard
 
 
+PAPER_HADAMARD_FORMAT = "local_hadamard_linear_v1"
+
+
 @dataclass(frozen=True)
 class HadamardConversionReport:
     converted: tuple[str, ...]
     skipped_tied: tuple[str, ...]
     skipped_non_power_of_two: tuple[str, ...]
+    weight_storage: str = "float32_reference"
+
+    def checkpoint_metadata(self) -> dict[str, object]:
+        """Return the versioned module-structure metadata required on reload."""
+        return {
+            "format": PAPER_HADAMARD_FORMAT,
+            "converted_linear_names": list(self.converted),
+            "skipped_tied_linear_names": list(self.skipped_tied),
+            "skipped_non_power_of_two_linear_names": list(self.skipped_non_power_of_two),
+            "weight_storage": self.weight_storage,
+        }
 
 
 class HadamardRotatedLinear(nn.Module):
@@ -56,7 +70,9 @@ class HadamardRotatedLinear(nn.Module):
         self.bias = None if bias is None else nn.Parameter(bias.detach().clone())
 
     @classmethod
-    def from_linear(cls, linear: nn.Linear) -> "HadamardRotatedLinear":
+    def from_linear(
+        cls, linear: nn.Linear, *, preserve_source_dtype: bool = False,
+    ) -> "HadamardRotatedLinear":
         """Create the exact rotated-coordinate representation of ``linear``."""
         if not isinstance(linear, nn.Linear):
             raise TypeError("linear must be torch.nn.Linear")
@@ -70,6 +86,9 @@ class HadamardRotatedLinear(nn.Module):
         )
         rotated_weight = hadamard(linear.weight.detach().to(compute_dtype))
         bias = None if linear.bias is None else linear.bias.detach().to(compute_dtype)
+        if preserve_source_dtype:
+            rotated_weight = rotated_weight.to(output_dtype)
+            bias = None if bias is None else bias.to(output_dtype)
         result = cls(rotated_weight, bias, output_dtype=output_dtype)
         result.train(linear.training)
         return result
@@ -92,6 +111,7 @@ def convert_linears_to_hadamard_coordinates_(
     *,
     include_names: Collection[str] | None = None,
     strict_power_of_two: bool = True,
+    preserve_source_dtype: bool = False,
 ) -> HadamardConversionReport:
     """Replace selected Linear modules by exact local Hadamard coordinates.
 
@@ -134,9 +154,45 @@ def convert_linears_to_hadamard_coordinates_(
     for name in convertible:
         parent_name, _, child_name = name.rpartition(".")
         parent = model if not parent_name else modules[parent_name]
-        setattr(parent, child_name, HadamardRotatedLinear.from_linear(modules[name]))
+        setattr(parent, child_name, HadamardRotatedLinear.from_linear(
+            modules[name], preserve_source_dtype=preserve_source_dtype
+        ))
     return HadamardConversionReport(
         converted=tuple(convertible),
         skipped_tied=tuple(tied),
         skipped_non_power_of_two=tuple(unsupported),
+        weight_storage=("source_model_dtype" if preserve_source_dtype else "float32_reference"),
     )
+
+
+def restore_hadamard_structure_from_metadata_(
+    model: nn.Module, metadata: object,
+) -> HadamardConversionReport:
+    """Rebuild the module structure described by versioned NQMC metadata."""
+    if not isinstance(metadata, dict) or metadata.get("format") != PAPER_HADAMARD_FORMAT:
+        raise ValueError("unsupported or malformed Hadamard checkpoint metadata")
+    names = metadata.get("converted_linear_names")
+    skipped_tied = metadata.get("skipped_tied_linear_names")
+    skipped_non_power = metadata.get("skipped_non_power_of_two_linear_names")
+    weight_storage = metadata.get("weight_storage")
+    if not all(isinstance(value, list) and all(isinstance(name, str) and name for name in value)
+               for value in (names, skipped_tied, skipped_non_power)):
+        raise ValueError("Hadamard checkpoint module lists must contain nonempty strings")
+    if weight_storage not in {"float32_reference", "source_model_dtype"}:
+        raise ValueError("unsupported Hadamard checkpoint weight storage mode")
+    if len(names) != len(set(names)):
+        raise ValueError("Hadamard checkpoint converted module names must be unique")
+    requested = [*names, *skipped_tied, *skipped_non_power]
+    if len(requested) != len(set(requested)):
+        raise ValueError("Hadamard checkpoint module categories must be disjoint")
+    report = convert_linears_to_hadamard_coordinates_(
+        model,
+        include_names=requested,
+        strict_power_of_two=False,
+        preserve_source_dtype=weight_storage == "source_model_dtype",
+    )
+    if (report.converted != tuple(sorted(names))
+            or report.skipped_tied != tuple(sorted(skipped_tied))
+            or report.skipped_non_power_of_two != tuple(sorted(skipped_non_power))):
+        raise ValueError("Hadamard checkpoint skip metadata disagrees with the model")
+    return report

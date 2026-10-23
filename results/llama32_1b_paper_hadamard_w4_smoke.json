@@ -1,0 +1,27 @@
+{
+  "scope": "Llama-3.2-1B first-window smoke only; not a full WikiText-2 result",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "predicted_tokens": 2047,
+  "quantization": {
+    "q": 14,
+    "converted_linear_count": 112,
+    "quantized_parameter_count": 973078528,
+    "excluded_tied_linear_names": ["lm_head"],
+    "weight_storage": "source_model_dtype",
+    "coordinate_format": "local_hadamard_linear_v1"
+  },
+  "perplexity": {
+    "bf16": 7.262661324700399,
+    "ordinary_nestquant_w4_no_lm_head": 8.194570147869161,
+    "paper_hadamard_nestquant_w4_in_memory": 8.064950086903059,
+    "paper_hadamard_nqmc_immediate_reload": 8.064950086903059,
+    "paper_hadamard_nqmc_independent_reload": 8.064950086903059
+  },
+  "checkpoint": {
+    "bytes": 1044559427,
+    "sha256": "942109f1475defebf8e6eee2d8f74d5abefa525e292e7f3a662e470ebb7e7da3",
+    "writer": "record-wise temporary payload plus atomic final replace",
+    "reader": "chunked checksum plus record-wise dequantization"
+  },
+  "claim_boundary": "The smoke proves execution and checkpoint semantic closure. The 2047-token PPL difference is not evidence of a full-dataset quality improvement."
+}

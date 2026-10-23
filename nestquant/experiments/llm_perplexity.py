@@ -25,6 +25,11 @@ from ..core.model_checkpoint import PackedNestQuantModel
 from ..core.model_checkpoint_file import NQMCFileReader
 from ..models.hessian_store import LlamaHessianStore
 from ..models.qa_calibration import ActivationVarianceStore
+from ..models.rotated_linear import (
+    HadamardRotatedLinear,
+    convert_linears_to_hadamard_coordinates_,
+    restore_hadamard_structure_from_metadata_,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +51,8 @@ def main() -> None:
                         help="exact nn.Linear names to retain in floating point")
     parser.add_argument("--rotation-seed", type=int, default=None,
                         help="enable signed-Hadamard weight-space ablation for NestQuant only")
+    parser.add_argument("--paper-hadamard", action="store_true",
+                        help="store W H and apply X H online for each supported Linear")
     parser.add_argument("--ldlq-hessian-dir", type=Path, default=None,
                         help="enable block-LDLQ using grouped calibration Hessians")
     parser.add_argument("--ldlq-calibration-chunks", type=int, default=16)
@@ -120,6 +127,10 @@ def main() -> None:
     if args.rotation_seed is not None and (
             methods != ["nestquant_w4"] or args.export_checkpoint or args.load_checkpoint):
         raise ValueError("--rotation-seed requires only nestquant_w4 and no checkpoint import/export")
+    if args.paper_hadamard and (methods != ["nestquant_w4"] or args.rotation_seed is not None):
+        raise ValueError("--paper-hadamard requires only nestquant_w4 and excludes --rotation-seed")
+    if args.paper_hadamard and args.a4:
+        raise ValueError("--paper-hadamard A4 integration is not implemented yet")
     if args.ldlq_hessian_dir is not None and (
             methods != ["nestquant_w4"] or args.load_checkpoint):
         raise ValueError(
@@ -170,7 +181,11 @@ def main() -> None:
               "rows_per_chunk": rows_per_chunk,
               "excluded_linear_names": sorted(set(args.exclude_linear)),
               "dither_rng_device": "cpu",
-              "weight_rotation": "none" if args.rotation_seed is None else "signed_hadamard_inverse_weight",
+              "weight_rotation": (
+                  "paper_local_hadamard_online_input" if args.paper_hadamard else
+                  "none" if args.rotation_seed is None else "signed_hadamard_inverse_weight"
+              ),
+              "paper_hadamard_coordinates": args.paper_hadamard,
               "rotation_seed": args.rotation_seed,
               "ldlq": args.ldlq_hessian_dir is not None,
               "ldlq_hessian_dir": str(args.ldlq_hessian_dir.resolve()) if args.ldlq_hessian_dir else None,
@@ -354,6 +369,7 @@ def main() -> None:
                             ldlq_relative_damp=args.ldlq_relative_damp,
                             ldlq_checkpoint_metadata=ldlq_checkpoint_metadata,
                             excluded_linear_names=args.exclude_linear,
+                            paper_hadamard=args.paper_hadamard,
                         ))
                         if hessian_store is not None:
                             method_stats["ldlq_calibration"] = ldlq_checkpoint_metadata
@@ -495,8 +511,18 @@ def _quantize_and_optionally_export(
     ldlq_relative_damp=0.01,
     ldlq_checkpoint_metadata=None,
     excluded_linear_names=(),
+    paper_hadamard=False,
 ) -> dict:
     packed_tensors: dict = {}
+    hadamard_report = None
+    effective_exclusions = tuple(excluded_linear_names)
+    if paper_hadamard:
+        hadamard_report = convert_linears_to_hadamard_coordinates_(
+            model, preserve_source_dtype=True
+        )
+        effective_exclusions = tuple(sorted(set(effective_exclusions)
+                                            | set(hadamard_report.skipped_tied)
+                                            | set(hadamard_report.skipped_non_power_of_two)))
     payload["quantization_progress"] = {"completed_layers": 0, "layer_timings": {}}
 
     def record_layer_progress(record: dict) -> None:
@@ -523,7 +549,10 @@ def _quantize_and_optionally_export(
         activation_variance_provider=activation_variance_provider,
         qa_epsilon_constant=qa_epsilon_constant,
         ldlq_relative_damp=ldlq_relative_damp,
-        excluded_linear_names=excluded_linear_names,
+        excluded_linear_names=effective_exclusions,
+    )
+    method_stats["hadamard_coordinates"] = (
+        None if hadamard_report is None else hadamard_report.checkpoint_metadata()
     )
     payload.pop("quantization_progress", None)
     if export_path is None:
@@ -542,10 +571,14 @@ def _quantize_and_optionally_export(
                         "seed": seed, "dither_rng_device": "cpu",
                         "encoder": encoder,
                         "encoder_metadata": ldlq_checkpoint_metadata,
+                        "hadamard_rotation": (
+                            None if hadamard_report is None
+                            else hadamard_report.checkpoint_metadata()
+                        ),
                         "torch_version": torch.__version__},
     )
     export_path.parent.mkdir(parents=True, exist_ok=True)
-    export_path.write_bytes(model_container.to_bytes())
+    model_container.write_to_file(export_path)
     del model_container, packed_tensors
     gc.collect()
     print(f"[nestquant_w4] reloading serialized state from {export_path}...", flush=True)
@@ -579,6 +612,17 @@ def _load_nqmc_into_model(path: Path, model, device, model_id: str, model_revisi
         raise ValueError(f"{encoder} NQMC is missing encoder metadata")
     if metadata.get("q") != q or metadata.get("seed") != seed:
         raise ValueError("NQMC q or dither seed does not match the evaluation config")
+    hadamard_metadata = metadata.get("hadamard_rotation")
+    if hadamard_metadata is not None:
+        if not isinstance(hadamard_metadata, dict):
+            raise ValueError("NQMC Hadamard rotation metadata must be an object")
+        converted_names = hadamard_metadata.get("converted_linear_names", [])
+        modules = dict(model.named_modules())
+        already_converted = converted_names and all(
+            isinstance(modules.get(name), HadamardRotatedLinear) for name in converted_names
+        )
+        if not already_converted:
+            restore_hadamard_structure_from_metadata_(model, hadamard_metadata)
     allowed_betas = {value / q for value in beta_coefficients}
     quantized_count = sum(entry.kind == "nestquant" for entry in reader.entries)
 
@@ -595,6 +639,7 @@ def _load_nqmc_into_model(path: Path, model, device, model_id: str, model_revisi
               "unique_quantized_tensors": quantized_count,
               "encoder": encoder,
               "encoder_metadata": metadata.get("encoder_metadata"),
+              "hadamard_rotation": hadamard_metadata,
               "reloaded_before_perplexity": True,
               "execution": "record-wise floating-point dequantization loaded into model dtype",
               "host_loading": "seek-based NQMC reader; one tensor record retained at a time"}

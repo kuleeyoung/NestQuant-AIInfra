@@ -39,6 +39,7 @@ QuaRot 官方仓库没有原生支持 Llama-3.2-1B。这里的对照是明确记
 - **模型权重量化**：独立 E8 block W4、8-column block-LDLQ、Hessian 坐标旋转和 QA-LDLQ 适配。
 - **激活与 KV**：七类 Llama Linear 输入 A4；post-RoPE Q/K 匹配旋转；逐 attention-head KV4。
 - **真实权重容器**：NQPK/NQRT/NQMC 固定宽度码流、beta ID、row norm、dither 状态、共享权重别名及完整模型回载。
+- **论文式局部旋转**：112 个 Llama Linear 支持离线保存 `W H`、在线计算 `X H`、旋转坐标 W4/LDLQ 和自包含 NQMC 回载；首窗口 smoke 的内存量化、立即回载与独立回载 PPL 精确一致。
 - **外部基线**：完成 QuaRot Llama-3.2-1B 兼容移植和 BF16/W4/W4KV4/W4A4/W4A4KV4 完整消融。
 - **实验审计**：保存 revision、token 哈希、配置哈希、校准 provenance、阶段耗时和失败状态。
 
@@ -70,7 +71,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 113 项主项目测试，覆盖 E8、codec、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径与模型级事务替换、LDLQ、packing、流式checkpoint回载、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 120 项主项目测试，覆盖 E8、codec、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
@@ -123,7 +124,7 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         113 项分层单元测试
+tests/unit/         120 项分层单元测试
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁
@@ -143,6 +144,7 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [当前正式结果与历史结果分层](docs/current_results.md)
 - [论文、作者代码与本项目对应矩阵](docs/paper_implementation_matrix.md)
 - [NestQuant 与 QuaRot 对照](results/llama32_1b_quarot_comparison.md)
+- [论文式 Hadamard W4/NQMC smoke](results/llama32_1b_paper_hadamard_w4_smoke.md)
 - [简历证据边界](docs/resume_evidence.md)
 
 ## 论文与上游来源

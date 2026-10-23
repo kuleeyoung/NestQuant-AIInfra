@@ -27,6 +27,8 @@ PyTorch 的线性层记为 `Y = X W^T`。对每层设 `R = D H`，其中 `D` 是
 - `tests/unit/core/test_rotation.py`：与显式 Hadamard 矩阵对照、逆变换、范数、线性输出、恒等量化器下 BF16 权重保持、固定 seed 和 tied weights。
 - `scripts/check_rotation_equivalence.py`：真实 1B 模型 113 层的恒等量化器检查，用一个固定 32-token 输入比较 logits。此检查范围有限，不代替全量 PPL。
 - `models/rotated_linear.py`：论文 §4.3 的局部参考路径，离线保存 `W H`，前向在线计算 `X H`；未量化时与原 `Linear` 严格等价。当前只支持 2 的幂输入维度，覆盖 Llama-3.2-1B 的 2048/8192 Linear 输入，不宣称已覆盖论文 Llama-3-8B 的 14336 维 Kronecker 路径。
+
+论文式局部路径现已接入 W4 与 NQMC：`--paper-hadamard` 先把支持的 Linear 转换为保存 `W H`、在线计算 `X H` 的模块，再直接量化旋转坐标权重；使用 LDLQ 时同步把输入 Hessian 变换到 Hadamard 坐标。NQMC 保存版本化的转换模块、tied 跳过项和非 2 次幂跳过项，独立回载会先恢复同一模块结构。当前只开放 W4/W4+LDLQ；A4 与该在线旋转的合并语义尚未实现，CLI 会显式拒绝该组合。
 - `convert_linears_to_hadamard_coordinates_`：先验证全部目标名称、维度和 tied embedding，再一次性替换模型投影；默认跳过与输入 embedding 共享存储的 `lm_head`。`scripts/check_llama_hadamard_coordinates.py` 用固定短 token 流比较转换前后 logits，只作为等价性 smoke。
 
 旋转消融的评测入口为 `--methods nestquant_w4 --rotation-seed 123`；省略该参数是无旋转对照。与 `--ldlq-hessian-dir` 同时使用时，量化器按每个 Linear 的旋转计算 `H_rot = R^T H R`，再做 block-LDL 分解。该变换与重新对旋转激活 `X R` 收集协方差数学等价，并有显式激活单元测试。当前 NQRT 未保存旋转定义，因此旋转模式会拒绝导出/回载参数，防止把旋转坐标系码字当作原坐标系权重读取。既有无旋转 NQMC 文件不受影响。

@@ -9,6 +9,7 @@ from nestquant.core.rotation import hadamard
 from nestquant.models.rotated_linear import (
     HadamardRotatedLinear,
     convert_linears_to_hadamard_coordinates_,
+    restore_hadamard_structure_from_metadata_,
 )
 
 
@@ -34,6 +35,16 @@ class TestHadamardRotatedLinear(unittest.TestCase):
         rotated = HadamardRotatedLinear.from_linear(linear)
         self.assertEqual(rotated.weight.dtype, torch.float32)
         self.assertEqual(rotated.output_dtype, torch.bfloat16)
+        output = rotated(torch.randn(2, 8, dtype=torch.bfloat16))
+        self.assertEqual(output.dtype, torch.bfloat16)
+
+    def test_source_dtype_storage_mode_keeps_bf16_weights(self):
+        linear = nn.Linear(8, 3, bias=True, dtype=torch.bfloat16)
+        rotated = HadamardRotatedLinear.from_linear(
+            linear, preserve_source_dtype=True
+        )
+        self.assertEqual(rotated.weight.dtype, torch.bfloat16)
+        self.assertEqual(rotated.bias.dtype, torch.bfloat16)
         output = rotated(torch.randn(2, 8, dtype=torch.bfloat16))
         self.assertEqual(output.dtype, torch.bfloat16)
 
@@ -105,6 +116,43 @@ class TestHadamardRotatedLinear(unittest.TestCase):
         self.assertTrue(all(isinstance(module, nn.Linear) for module in model))
         with self.assertRaisesRegex(ValueError, "unknown Linear"):
             convert_linears_to_hadamard_coordinates_(model, include_names={"missing"})
+
+    def test_checkpoint_metadata_rebuilds_exact_module_structure(self):
+        class TiedModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embed = nn.Embedding(16, 8)
+                self.proj = nn.Linear(8, 8, bias=False)
+                self.non_power = nn.Linear(12, 3, bias=False)
+                self.lm_head = nn.Linear(8, 16, bias=False)
+                self.lm_head.weight = self.embed.weight
+
+            def get_input_embeddings(self):
+                return self.embed
+
+        source = TiedModel()
+        report = convert_linears_to_hadamard_coordinates_(source, strict_power_of_two=False)
+        restored = TiedModel()
+        restored_report = restore_hadamard_structure_from_metadata_(
+            restored, report.checkpoint_metadata()
+        )
+        self.assertEqual(restored_report, report)
+        self.assertIsInstance(restored.proj, HadamardRotatedLinear)
+        self.assertIsInstance(restored.non_power, nn.Linear)
+        self.assertIs(restored.lm_head.weight, restored.embed.weight)
+
+    def test_checkpoint_metadata_rejects_category_drift_before_conversion(self):
+        model = nn.Sequential(nn.Linear(8, 4))
+        metadata = {
+            "format": "local_hadamard_linear_v1",
+            "converted_linear_names": ["0"],
+            "skipped_tied_linear_names": ["0"],
+            "skipped_non_power_of_two_linear_names": [],
+            "weight_storage": "float32_reference",
+        }
+        with self.assertRaisesRegex(ValueError, "disjoint"):
+            restore_hadamard_structure_from_metadata_(model, metadata)
+        self.assertIsInstance(model[0], nn.Linear)
 
 
 if __name__ == "__main__":

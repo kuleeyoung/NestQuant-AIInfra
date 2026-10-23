@@ -243,7 +243,8 @@ def _validate_metadata(tensor_name, indices, row_norms, betas, feature_count, ou
 
 
 def _tensor_to_bytes(tensor: torch.Tensor) -> bytes:
-    return bytes(tensor.detach().cpu().contiguous().view(torch.uint8).untyped_storage())
+    byte_view = tensor.detach().cpu().contiguous().view(torch.uint8)
+    return byte_view.numpy().tobytes(order="C")
 
 
 def _tensor_from_bytes(blob: bytes, shape: tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:

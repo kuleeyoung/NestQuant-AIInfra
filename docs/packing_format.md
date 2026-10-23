@@ -54,7 +54,7 @@ model.load_state_dict(restored_state)
 
 NQMC v1 currently requires a little-endian host and restores quantized tensors by dequantizing them to their recorded floating dtype. The WikiText-2 evaluator can export NQMC and evaluate PPL after reloading it, or evaluate a previously exported file with `--load-checkpoint`. `model_metadata.encoder` distinguishes independent E8-block encoding from block-LDLQ encoding; LDLQ also records the calibration protocol and Hessian artifact hashes. Hessian is an encoder-only input and is not needed to decode the stored final codes. This is a serialization container, not an integer matmul format or speedup implementation. Real Llama-3.2-1B model-level results are recorded for [ordinary W4](../results/llama32_1b_nqmc_w4_full.md) and [train64 block-LDLQ W4](../results/llama32_1b_w4_ldlq_nqmc.md); low-bit inference performance remains unmeasured.
 
-模型回载使用 `NQMCFileReader` 分块校验 payload SHA-256，并按记录读取、验证和反量化。写入模型前先检查完整记录集合、state-dict 名称、shape、dtype 与 alias，因此格式错误不会留下半加载模型。该路径降低的是加载期间的主机瞬时副本：最终模型仍以浮点权重常驻并执行。`scripts/benchmark_nqmc_stream_load.py` 只测检查点回载耗时和峰值 RSS，不运行 PPL，也不能作为推理加速证据。
+模型导出使用 `PackedNestQuantModel.write_to_file()` 逐记录写入临时 payload、增量计算 SHA-256，再以 8 MiB 分块组成临时目标文件并原子替换正式路径，因此不需要额外拼接一个完整 NQMC `bytes` 副本。模型回载使用 `NQMCFileReader` 分块校验 payload SHA-256，并按记录读取、验证和反量化。写入模型前先检查完整记录集合、state-dict 名称、shape、dtype 与 alias，因此格式错误不会留下半加载模型。该路径降低的是导出/加载期间的主机瞬时副本：最终模型仍以浮点权重常驻并执行。`scripts/benchmark_nqmc_stream_load.py` 只测检查点回载耗时和峰值 RSS，不运行 PPL，也不能作为推理加速证据。
 
 ## API and checks
 

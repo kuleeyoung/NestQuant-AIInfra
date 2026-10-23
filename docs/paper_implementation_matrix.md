@@ -16,8 +16,8 @@
 本项目已经实现并测试 E8 最近点、嵌套 Voronoi codec、L2 行归一化、multi-beta、First-beta 动态规划、block-LDLQ、QA-LDLQ 公式适配、权重/激活/KV 质量仿真和 NQMC 真实权重文件。当前最主要的论文一致性差距是：
 
 1. 正式 LLM 权重 beta 使用项目扩展候选，不等于固定上游默认 `[4.0, 5.5, 7.0, 18.0]`，也不等于论文合成实验的完整 `0.5×{1,...,50}` 网格；
-2. 当前权重旋转消融把逆旋转融合回重构权重，未逐项复现论文 §4.3 的“权重融合旋转 + Linear 输入在线匹配旋转”；
-3. 当前 A4/KV4 模块覆盖论文所述位置，但与固定上游的 `kron_h_ip`、无 dither try-all 路径及逐层 beta 优化仍需逐项对齐；
+2. 论文 §4.3 的局部 `W H` 权重与在线 `X H` 输入路径已经接入 Llama-3.2-1B W4、LDLQ Hessian 坐标变换和 NQMC 回载；尚未与固定作者代码逐层逐张量核对，也未覆盖非 2 次幂 Kronecker 路径；
+3. 当前 A4/KV4 模块覆盖论文所述位置，但尚未与新的局部 Hadamard W4 路径组合；与固定上游的 `kron_h_ip`、无 dither try-all 路径及逐层 beta 优化仍需逐项对齐；
 4. QA-LDLQ 公式已实现并完成 Hessian 尺度审计，但在本地 Llama-3.2-1B 配置上没有复现论文增益；
 5. NQMC 提供真实低比特权重存储，运行时仍反量化到 BF16；A/KV 没有 packed 常驻格式或低比特 kernel。
 
@@ -34,7 +34,7 @@
 | multi-beta First-beta | PDF p.20 Appendix F | 作者 README 称 DP 脚本“will be added”；固定 commit 无完整 DP 入口 | `nestquant/core/beta_search.py` | 项目独立实现并与穷举核对 | 不能宣称逐行复用了作者 DP 代码 |
 | 合成实验 beta 网格 | PDF p.9 §5.1：`0.5×{1,...,50}` 中选 k 个 | 固定代码允许外部传入 betas | 合成实验支持该尺度映射 | 基本对齐 | 论文码率公式符号存在疑点，项目同时保留原式与 Shannon 解释 |
 | LLM 权重 beta | PDF p.10：q=14、k=4；正文不足以确认每层值 | `parallel/w_quant.py` 默认 `[4.0,5.5,7.0,18.0]` | 正式候选含 `[3.5,4.5,6.0,14.5,25.0,40.0,50.0,100.0]`；100 只用于 QA outlier | 项目扩展 | 需区分 upstream default、paper grid 与 project extended |
-| 权重—激活匹配旋转 | PDF p.7 §4.3：每个 Linear 使用匹配 H | `parallel/w_quant.py` 与 `parallel/quant_utils.py` 使用 `kron_h_ip` | `core/rotation.py` 和权重旋转消融；当前把逆变换融合回重构权重 | 部分实现 | 需新增在线输入旋转等价路径，并与固定上游按层比较 |
+| 权重—激活匹配旋转 | PDF p.7 §4.3：每个 Linear 使用匹配 H | `parallel/w_quant.py` 与 `parallel/quant_utils.py` 使用 `kron_h_ip` | `models/rotated_linear.py` 保存 `W H` 并在前向在线计算 `X H`；W4、LDLQ 坐标和 NQMC 元数据已接入 | Llama-3.2-1B W4 路径已实现 | 需跑完整 PPL、组合 A4，并与固定上游按层比较 |
 | 非 2 次幂旋转 | PDF p.7 §4.3：`H1⊗H2`；p.21-22 Table 7 | `hadamard.py::kron_h_ip` 对固定模型尺寸提供硬编码 Hadamard | 当前核心旋转只支持 2 次幂；Llama-3.2-1B 的 2048/8192 输入维度均可覆盖 | 当前目标模型不阻塞 | 若扩展到论文 Llama-3-8B 的 14336 维 down projection，需实现并核对 Kronecker 路径 |
 | Q/K 旋转与 K/V 量化 | PDF p.8-9 §4.3/Fig.4 | `parallel/model.py` post-RoPE 对 Q/K 做 head-dim Hadamard，量化 K/V | `evaluation/kv_cache.py` | 质量路径已实现 | 需做固定上游逐张量等价测试；当前 cache 存浮点重构值 |
 | 激活量化 | PDF p.7-9：Linear 前旋转并量化 | `parallel/quant_utils.py` forward-pre-hook | `evaluation/activation_quantization.py` | 质量仿真已实现 | beta、旋转与列并行分类需逐层对齐上游 |
@@ -46,17 +46,19 @@
 | PPL split | PDF p.10 写 WikiText-2 validation | `parallel/ppl.py` 使用 test | 本项目使用 test | 已披露偏差 | 无法确认论文表格最终入口为何与正文不同 |
 | zero-shot | PDF p.10 列 ARC-Easy/Challenge、HellaSwag、Winogrande | 固定 README 表示 zero-shot code 将来加入 | lm-eval PIQA/HellaSwag 路径已开发但正式运行暂缓 | 暂缓 | PIQA 不是论文任务，不能称论文 zero-shot 复现 |
 
-## 旋转问题的修正路线
+## 旋转问题的当前状态与后续路线
 
-下一步不直接实现一个未经论文要求的 QuaRot 式全局 residual 旋转图，而按下面顺序验证：
+项目已经完成 2 次幂维度下“离线旋转权重 + 在线旋转输入”的严格恒等测试，并把该结构接入 Llama-3.2-1B 的 112 个 Linear。首个 2,047-token smoke 已验证 W4 内存路径、流式 NQMC 导出、立即回载和独立进程回载数值一致；它不是正式质量结论。
 
-1. 用小张量复现固定上游 `kron_h_ip`，覆盖 2 次幂与 Llama MLP 非 2 次幂维度；
-2. 为一个 Linear 构造“离线旋转权重 + 在线旋转输入”的严格恒等路径；
-3. 对 Q/K 验证 post-RoPE 同一正交旋转保持 attention score；
-4. 对固定上游和本项目的 A/K/V 量化前张量、旋转后张量、重构张量逐项比较；
-5. 只有上述等价测试通过后，才考虑重新运行完整模型质量实验。
+后续按下面顺序推进：
 
-这条路线先解决语义一致性，不把 QuaRot 的全模型变换结构强加给 NestQuant。
+1. 运行完整 288,627-token WikiText-2 PPL，确认局部 Hadamard W4 的正式质量；
+2. 将该路径与 A4 组合，并明确在线 Hadamard 与激活量化的先后和尺度语义；
+3. 对固定上游和本项目的量化前张量、旋转后张量、重构张量逐层比较；
+4. 扩展到非 2 次幂模型时，实现并核对 `H1⊗H2` Kronecker 路径；
+5. Q/K 的 post-RoPE 旋转、KV4 和低比特 kernel 保持为独立验证项。
+
+这条路线先解决 NestQuant 自身的语义一致性，不把 QuaRot 的全模型变换结构强加给 NestQuant。
 
 ## 仍无法确认的信息
 

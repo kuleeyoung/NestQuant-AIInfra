@@ -6,7 +6,9 @@
 
 当前推荐引用结果、历史结果和暂缓结果的分层见 [`docs/current_results.md`](../docs/current_results.md)。新报告和简历应优先引用 shared128、BF16 `lm_head` 的正式矩阵；首轮、train64 和普通 W4 NQMC 文档作为开发过程证据保留，不用较旧数字覆盖当前主结果。
 
-NQMC 加载器已经完成从整文件/整 state-dict 常驻到分块校验、逐记录回载的改造。同一个 1.04 GB 文件的单次前后内存与时间对照见[流式回载工程基准](llama32_1b_nqmc_load_benchmark.md)；该数据只属于加载阶段，不作为推理加速证据。
+NQMC 加载器已经完成从整文件/整 state-dict 常驻到分块校验、逐记录回载的改造。同一个 1.04 GB 文件两种加载方式各 3 次的内存与时间对照见[流式回载工程基准](llama32_1b_nqmc_load_benchmark.md)；该数据只属于加载阶段，不作为推理加速证据。
+
+论文 §4.3 的局部 `W H`/`X H` 路径已经接入 W4、LDLQ 坐标变换、流式 NQMC 导出和独立回载。Llama-3.2-1B 首窗口三档控制与检查点闭环见[论文式 Hadamard W4/NQMC smoke](llama32_1b_paper_hadamard_w4_smoke.md)；该报告不把 2,047-token 差值写成正式质量提升。
 
 论文 §4.3 的局部 `WH` 权重与在线 `XH` 输入路径已完成短 token 数值 smoke；1/7/112 个 Linear 的相对 L2 logits 误差为 0.9554%/1.0751%/1.0964%，本次 top-1 均一致。该结果只用于旋转语义排错，见 [Hadamard 坐标 smoke](llama32_1b_hadamard_coordinate_smoke.md)。
 

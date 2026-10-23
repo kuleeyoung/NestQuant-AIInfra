@@ -7,9 +7,26 @@ from torch import nn
 
 from nestquant.models.quantization import quantize_nestquant_w4_, quantize_rtn_w4_
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
+from nestquant.models.rotated_linear import convert_linears_to_hadamard_coordinates_
 
 
 class TestModelQuantization(unittest.TestCase):
+    def test_hadamard_linear_uses_rotated_hessian_coordinates(self):
+        model = nn.Sequential(nn.Linear(8, 3, bias=False))
+        convert_linears_to_hadamard_coordinates_(model)
+        artifacts = {}
+
+        def hessian_provider(_name):
+            hessian = torch.diag(torch.arange(1, 9, dtype=torch.float32))
+            return "diagonal-input", hessian
+
+        stats = quantize_nestquant_w4_(
+            model, q=14, beta_coefficients=(3.0, 4.5, 6.0, 10.0, 15.0),
+            selected_beta_count=4, rows_per_chunk=2,
+            output_artifacts=artifacts, hessian_provider=hessian_provider,
+        )
+        self.assertEqual(stats["layer_hessian_coordinates"]["0"], "local_hadamard_input")
+        self.assertIn("0.weight", artifacts)
     def test_rtn_w4_updates_linear_weights_in_place(self):
         model = nn.Sequential(nn.Linear(16, 4, bias=False))
         before = model[0].weight.detach().clone()

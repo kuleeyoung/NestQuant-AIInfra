@@ -11,7 +11,13 @@ from nestquant.core.model_checkpoint import PackedNestQuantModel
 from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.core.quantizer import quantize_rows
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
+from nestquant.core.tensor_checkpoint import _tensor_to_bytes
 from nestquant.models.quantization import quantize_nestquant_w4_
+from nestquant.models.rotated_linear import (
+    HadamardRotatedLinear,
+    convert_linears_to_hadamard_coordinates_,
+    restore_hadamard_structure_from_metadata_,
+)
 
 
 class TinyTiedModel(nn.Module):
@@ -25,6 +31,13 @@ class TinyTiedModel(nn.Module):
 
 
 class TestModelCheckpoint(unittest.TestCase):
+    def test_tensor_bytes_cover_only_contiguous_tensor_values(self):
+        base = torch.arange(24, dtype=torch.float32).reshape(4, 6)
+        view = base[:, ::2]
+        expected = view.contiguous().view(torch.uint8).numpy().tobytes(order="C")
+        self.assertEqual(_tensor_to_bytes(view), expected)
+        self.assertEqual(len(_tensor_to_bytes(view)), view.numel() * view.element_size())
+
     def _write_checkpoint(self, checkpoint: PackedNestQuantModel, directory: str) -> Path:
         path = Path(directory) / "model.nqmc"
         path.write_bytes(checkpoint.to_bytes())
@@ -109,6 +122,18 @@ class TestModelCheckpoint(unittest.TestCase):
             self.assertTrue(torch.equal(tensor, expected[name]), name)
         self.assertEqual(target.embed_tokens.weight.data_ptr(), target.lm_head.weight.data_ptr())
 
+    def test_streaming_writer_matches_in_memory_format(self):
+        model = TinyTiedModel().to(torch.bfloat16)
+        checkpoint = PackedNestQuantModel.from_state_dict(
+            model.state_dict(), {}, model_metadata={"writer": "streaming"}
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "nested" / "model.nqmc"
+            checkpoint.write_to_file(path)
+            self.assertEqual(path.read_bytes(), checkpoint.to_bytes())
+            loaded = NQMCFileReader(path)
+            self.assertEqual(loaded.model_metadata["writer"], "streaming")
+
     def test_file_reader_casts_floating_checkpoint_to_model_dtype(self):
         source = TinyTiedModel().to(torch.float32)
         checkpoint = PackedNestQuantModel.from_state_dict(source.state_dict(), {})
@@ -192,6 +217,32 @@ class TestModelCheckpoint(unittest.TestCase):
         self.assertEqual(restored.model_metadata["encoder"], "block_ldlq")
         self.assertEqual(restored.model_metadata["encoder_metadata"], encoder_metadata)
         self.assertTrue(torch.equal(restored.state_dict()["0.weight"], model[0].weight))
+
+    def test_hadamard_w4_checkpoint_rebuilds_online_rotation_model(self):
+        torch.manual_seed(58)
+        source = nn.Sequential(nn.Linear(8, 8, bias=True), nn.GELU(), nn.Linear(8, 3))
+        conversion = convert_linears_to_hadamard_coordinates_(source)
+        artifacts = {}
+        quantize_nestquant_w4_(
+            source, q=14, beta_coefficients=(3.0, 4.5, 6.0, 10.0, 15.0),
+            selected_beta_count=4, rows_per_chunk=2, output_artifacts=artifacts,
+        )
+        checkpoint = PackedNestQuantModel.from_state_dict(
+            source.state_dict(), artifacts,
+            model_metadata={"hadamard_rotation": conversion.checkpoint_metadata()},
+        )
+        target = nn.Sequential(nn.Linear(8, 8, bias=True), nn.GELU(), nn.Linear(8, 3))
+        inputs = torch.randn(4, 8)
+        with tempfile.TemporaryDirectory() as directory:
+            reader = NQMCFileReader(self._write_checkpoint(checkpoint, directory))
+            restore_hadamard_structure_from_metadata_(
+                target, reader.model_metadata["hadamard_rotation"]
+            )
+            reader.load_into_model(target, device="cpu")
+        self.assertTrue(all(
+            isinstance(target[index], HadamardRotatedLinear) for index in (0, 2)
+        ))
+        torch.testing.assert_close(target(inputs), source(inputs), atol=0, rtol=0)
 
 
 if __name__ == "__main__":

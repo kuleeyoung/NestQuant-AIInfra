@@ -15,6 +15,7 @@ from ..core.quantizer import QuantizedRows, quantize_rows, quantize_rows_ldlq
 from ..core.ldlq import block_unit_lower_ldl
 from ..core.tensor_checkpoint import PackedNestQuantTensor
 from ..core.rotation import rotate_covariance, signed_hadamard
+from .rotated_linear import HadamardRotatedLinear
 
 
 def quantize_rtn_w4_(model: nn.Module, *, group_size: int = 128) -> dict:
@@ -142,8 +143,9 @@ def quantize_nestquant_w4_(
     cached_qa_key = None
     cached_qa_cholesky = None
     cached_qa_hessian = None
+    quantizable_types = (nn.Linear, HadamardRotatedLinear)
     available_linear_names = {
-        name for name, module in model.named_modules() if isinstance(module, nn.Linear)
+        name for name, module in model.named_modules() if isinstance(module, quantizable_types)
     }
     unknown_exclusions = excluded_names - available_linear_names
     if unknown_exclusions:
@@ -155,7 +157,7 @@ def quantize_nestquant_w4_(
         return time.perf_counter() - started
 
     for name, module in model.named_modules():
-        if not isinstance(module, nn.Linear):
+        if not isinstance(module, quantizable_types):
             continue
         if name in excluded_names:
             continue
@@ -184,7 +186,11 @@ def quantize_nestquant_w4_(
             phase_started = time.perf_counter()
             hessian_key, hessian_cpu = hessian_provider(name)
             hessian = hessian_cpu.to(device=original.device, dtype=matrix.dtype)
-            if signs is not None:
+            if isinstance(module, HadamardRotatedLinear):
+                hessian = rotate_covariance(hessian, torch.ones(
+                    hessian.shape[0], device=hessian.device, dtype=hessian.dtype
+                ))
+            elif signs is not None:
                 hessian = rotate_covariance(hessian, signs)
             qa_record = (
                 None if activation_variance_provider is None
@@ -229,6 +235,7 @@ def quantize_nestquant_w4_(
             timing_hessian = elapsed_since(phase_started, original.device)
             stats.setdefault("layer_hessian_sources", {})[name] = hessian_key
             stats.setdefault("layer_hessian_coordinates", {})[name] = (
+                "local_hadamard_input" if isinstance(module, HadamardRotatedLinear) else
                 "original_input" if signs is None else "signed_hadamard_input"
             )
             stats.setdefault("layer_ldlq_damping", {})[name] = cached_damping
