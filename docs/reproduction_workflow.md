@@ -89,3 +89,7 @@ python scripts/run_reproduction.py \
 ## 证据边界
 
 统一入口提高的是复现可靠性和工程可读性，不会改变实验性质。W4 NQMC 是真实低比特权重文件；A4/KV4 仍是浮点重构后的 fake quant；当前流程不产生低比特 kernel 延迟或吞吐证据。
+
+## 下游任务评测
+
+PIQA/HellaSwag 入口为 `scripts/evaluate_downstream_tasks.py`，固定使用 `lm_eval==0.4.13`。它支持 `bf16`、`w4` 和 `w4a4kv4` 三档；W4从同一个NQMC回载，W4A4KV4为每次harness前向创建独立的量化cache。正式夜间脚本为 `scripts/run_downstream_full_overnight.sh`，按BF16、W4、W4A4KV4顺序运行，并支持根据已完成JSON断点续跑。

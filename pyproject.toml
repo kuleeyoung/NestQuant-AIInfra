@@ -17,6 +17,7 @@ nestquant-reproduce = "nestquant.experiments.reproduction:main"
 [project.optional-dependencies]
 evaluation = ["transformers>=4.45", "datasets>=3.0", "huggingface-hub>=0.25", "safetensors>=0.4"]
 dev = ["transformers>=4.45", "pytest>=8.0"]
+benchmark = ["lm_eval==0.4.13", "accelerate>=0.26"]
 
 [tool.setuptools.packages.find]
 include = ["nestquant*"]
