@@ -21,6 +21,7 @@
 | NestQuant W4KV4 PPL | 10.668994 | 同上 | 正式质量仿真 |
 | NestQuant W4A4 PPL | 10.952032 | 同上 | 正式质量仿真 |
 | NestQuant W4A4KV4 PPL | 11.504096 | 同上 | 正式质量仿真 |
+| 论文式 Hadamard W4 PPL | 10.917094 | [局部 Hadamard W4 完整报告](../results/llama32_1b_paper_hadamard_w4_full.md) | 同协议普通 W4 为 11.054059；无 LDLQ |
 | QuaRot 兼容移植 GPTQ W4 PPL | 10.508346 | [QuaRot 对照](../results/llama32_1b_quarot_comparison.md) | 同校准/测试兼容移植，不是官方 Llama-3.2 结果 |
 | QuaRot 兼容移植 W4A4KV4 PPL | 21.095586 | 同上 | fake-quant 兼容移植 |
 | 共享校准 W4 NQMC | 1,044,557,140 B | [共享校准递进报告](../results/llama32_1b_shared128_w4a4kv4_progression.md) | 真实文件和独立回载；不证明低比特执行 |
@@ -45,7 +46,7 @@ PIQA/HellaSwag 完整评测已暂缓。相关脚本和严格汇总器保留，�
 ## 表述边界
 
 - 可以陈述真实 NQMC 文件字节数、哈希、独立回载和 PPL 一致性；
-- 可以陈述论文式 `W H`/`X H` 已完成 112 层真实模型 smoke、自包含 NQMC 与独立回载；当前 2,047-token 数字只能作为流程证据，不能替代完整 PPL；
+- 可以陈述论文式 `W H`/`X H` 已完成 112 层、自包含 NQMC、独立回载和完整 288,627-token PPL；同协议无 LDLQ W4 中 PPL 从 11.054059 降至 10.917094；
 - 可以陈述固定协议下的 PPL 与消融；
 - A4/KV4 仍是质量仿真，不能声称低比特张量常驻显存；
 - 没有 INT4 GEMM 或融合 kernel，不能声称推理加速；

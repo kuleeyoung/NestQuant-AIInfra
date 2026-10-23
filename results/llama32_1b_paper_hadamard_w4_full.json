@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "experiment": "llama32_1b_paper_hadamard_w4_full",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "dataset_id": "Salesforce/wikitext",
+  "dataset_config": "wikitext-2-raw-v1",
+  "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "context_length": 2048,
+  "predicted_token_count": 288627,
+  "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "git_commit": "6173e6580e44a124151d04f376c2d3e240031c03",
+  "source_sha256": "ec8146b0ff79c0d24818989d6ec0c956738ac8f71115504b33cea537ee6dca33",
+  "protocol": {
+    "q": 14,
+    "selected_beta_count": 4,
+    "beta_coefficients_project_scale": [3.5, 4.5, 6.0, 14.5, 25.0, 40.0, 50.0, 100.0],
+    "seed": 58,
+    "quantized_linear_count": 112,
+    "excluded_linear_names": ["lm_head"],
+    "ldlq": false,
+    "activation_quantization": "none",
+    "kv_cache_quantization": "none"
+  },
+  "results": {
+    "standard_w4_control": {
+      "perplexity": 11.054058942887258,
+      "mean_nll_per_predicted_token": 2.402797685664564,
+      "peak_cuda_memory_allocated_bytes": 3066206720,
+      "elapsed_seconds_including_quantization": 92.438568557,
+      "raw_manifest": "results/raw/llama32_1b_standard_w4_no_lm_head_full_control.json"
+    },
+    "paper_local_hadamard_w4": {
+      "perplexity": 10.917094493538636,
+      "mean_nll_per_predicted_token": 2.3903298628930476,
+      "peak_cuda_memory_allocated_bytes": 3065830912,
+      "evaluation_elapsed_seconds_from_checkpoint": 67.63387325299999,
+      "raw_manifest": "results/raw/llama32_1b_paper_hadamard_w4_full.json",
+      "nqmc_file_bytes": 1044559427,
+      "nqmc_sha256": "942109f1475defebf8e6eee2d8f74d5abefa525e292e7f3a662e470ebb7e7da3"
+    },
+    "hadamard_minus_control": {
+      "perplexity_delta": -0.1369644493486213,
+      "relative_perplexity_change_percent": -1.2390421478325042,
+      "mean_nll_delta": -0.012467822771516257
+    }
+  },
+  "claim_boundary": "This is a same-protocol W4 quality comparison with BF16 execution after dequantization. It does not establish integer-kernel speedup."
+}

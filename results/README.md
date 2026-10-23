@@ -10,6 +10,8 @@ NQMC 加载器已经完成从整文件/整 state-dict 常驻到分块校验、�
 
 论文 §4.3 的局部 `W H`/`X H` 路径已经接入 W4、LDLQ 坐标变换、流式 NQMC 导出和独立回载。Llama-3.2-1B 首窗口三档控制与检查点闭环见[论文式 Hadamard W4/NQMC smoke](llama32_1b_paper_hadamard_w4_smoke.md)；该报告不把 2,047-token 差值写成正式质量提升。
 
+完整 288,627-token 对照已经确认：相同范围的普通 W4 PPL 为 11.054059，论文式局部 Hadamard W4 为 10.917094，绝对下降 0.136964、相对下降 1.239%。固定协议、检查点哈希和结论边界见[论文式 Hadamard W4 完整报告](llama32_1b_paper_hadamard_w4_full.md)。
+
 论文 §4.3 的局部 `WH` 权重与在线 `XH` 输入路径已完成短 token 数值 smoke；1/7/112 个 Linear 的相对 L2 logits 误差为 0.9554%/1.0751%/1.0964%，本次 top-1 均一致。该结果只用于旋转语义排错，见 [Hadamard 坐标 smoke](llama32_1b_hadamard_coordinate_smoke.md)。
 
 ## WikiText-2 PPL 汇总
