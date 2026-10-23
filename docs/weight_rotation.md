@@ -30,7 +30,9 @@ PyTorch 的线性层记为 `Y = X W^T`。对每层设 `R = D H`，其中 `D` 是
 
 论文式局部路径现已接入 W4 与 NQMC：`--paper-hadamard` 先把支持的 Linear 转换为保存 `W H`、在线计算 `X H` 的模块，再直接量化旋转坐标权重；使用 LDLQ 时同步把输入 Hessian 变换到 Hadamard 坐标。NQMC 保存版本化的转换模块、tied 跳过项和非 2 次幂跳过项，独立回载会先恢复同一模块结构。当前只开放 W4/W4+LDLQ；A4 与该在线旋转的合并语义尚未实现，CLI 会显式拒绝该组合。
 
-完整 WikiText-2 test 结果显示，在同样保留 BF16 `lm_head`、8 个 beta 候选和 seed 58 的无 LDLQ W4 协议下，普通 W4 PPL 为 11.054059，论文式局部 Hadamard W4 为 10.917094，绝对下降 0.136964、相对下降 1.239%。该结论只适用于当前 W4 路径；是否能与 shared128 LDLQ 叠加仍需单独实验。
+完整 WikiText-2 test 结果显示，在同样保留 BF16 `lm_head`、8 个 beta 候选和 seed 58 的无 LDLQ W4 协议下，普通 W4 PPL 为 11.054059，论文式局部 Hadamard W4 为 10.917094，绝对下降 0.136964、相对下降 1.239%。
+
+shared128 LDLQ 组合实验已经完成：仅 LDLQ W4 为 10.211760，论文式 Hadamard + shared128 LDLQ W4 为 10.076729，继续下降 0.135031（1.322%）。相对普通 W4 的总改善为 0.977330；Hadamard 与 LDLQ 的收益近似可加。完整四因素消融见[组合报告](../results/llama32_1b_paper_hadamard_ldlq_ablation.md)。
 - `convert_linears_to_hadamard_coordinates_`：先验证全部目标名称、维度和 tied embedding，再一次性替换模型投影；默认跳过与输入 embedding 共享存储的 `lm_head`。`scripts/check_llama_hadamard_coordinates.py` 用固定短 token 流比较转换前后 logits，只作为等价性 smoke。
 
 旋转消融的评测入口为 `--methods nestquant_w4 --rotation-seed 123`；省略该参数是无旋转对照。与 `--ldlq-hessian-dir` 同时使用时，量化器按每个 Linear 的旋转计算 `H_rot = R^T H R`，再做 block-LDL 分解。该变换与重新对旋转激活 `X R` 收集协方差数学等价，并有显式激活单元测试。当前 NQRT 未保存旋转定义，因此旋转模式会拒绝导出/回载参数，防止把旋转坐标系码字当作原坐标系权重读取。既有无旋转 NQMC 文件不受影响。

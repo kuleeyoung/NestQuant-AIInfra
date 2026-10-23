@@ -146,6 +146,7 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [NestQuant 与 QuaRot 对照](results/llama32_1b_quarot_comparison.md)
 - [论文式 Hadamard W4/NQMC smoke](results/llama32_1b_paper_hadamard_w4_smoke.md)
 - [论文式 Hadamard W4 完整 WikiText-2 PPL](results/llama32_1b_paper_hadamard_w4_full.md)
+- [论文式 Hadamard + shared128 LDLQ 四因素消融](results/llama32_1b_paper_hadamard_ldlq_ablation.md)
 - [简历证据边界](docs/resume_evidence.md)
 
 ## 论文与上游来源

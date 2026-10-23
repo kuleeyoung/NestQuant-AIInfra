@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "experiment": "llama32_1b_paper_hadamard_shared128_ldlq_ablation",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "dataset": "Salesforce/wikitext:wikitext-2-raw-v1:test",
+  "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "predicted_token_count": 288627,
+  "token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "quantization_scope": "112 Llama Linear weights; tied lm_head retained in BF16",
+  "results": {
+    "bf16": 9.758111861927578,
+    "plain_w4": 11.054058942887258,
+    "paper_hadamard_w4": 10.917094493538636,
+    "shared128_ldlq_w4": 10.211759713549691,
+    "paper_hadamard_shared128_ldlq_w4": 10.076728589568342
+  },
+  "comparisons": {
+    "hadamard_gain_from_plain_w4": 0.1369644493486213,
+    "shared128_ldlq_gain_from_plain_w4": 0.8422992293375664,
+    "combined_gain_from_plain_w4": 0.9773303533189157,
+    "combined_gain_over_shared128_ldlq": 0.13503112398134894,
+    "combined_relative_gain_over_shared128_ldlq_percent": 1.3223100402781744,
+    "plain_w4_to_bf16_gap_closed_by_combination_percent": 75.41437205870932,
+    "additive_interaction_ppl": -0.0019333253672719763
+  },
+  "combined_checkpoint": {
+    "format": "NQMC v1",
+    "file_bytes": 1044561090,
+    "sha256": "f594a20cd2f2abfed88fc1bdeabe8efb7a71e4bef5509933a74ab327a841f821",
+    "encoder": "block_ldlq",
+    "hadamard_format": "local_hadamard_linear_v1",
+    "calibration_chunks": 128,
+    "calibration_tokens": 262144,
+    "calibration_token_ids_sha256": "358a77b403d372a11957df15dbf46ef3e6f54025d315eaf3514c40bd561d90bb"
+  },
+  "combined_run": {
+    "git_commit": "4f456a2a0bb420bdb0abd20999d98059d658b2f8",
+    "source_sha256": "ec8146b0ff79c0d24818989d6ec0c956738ac8f71115504b33cea537ee6dca33",
+    "elapsed_seconds": 838.7481323940001,
+    "peak_cuda_memory_allocated_bytes": 3066206720,
+    "raw_manifest": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_full.json"
+  },
+  "claim_boundary": "Quality and packed-checkpoint evidence only; runtime execution dequantizes to BF16 Linear and does not establish low-bit inference speedup."
+}
