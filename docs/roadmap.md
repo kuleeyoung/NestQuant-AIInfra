@@ -17,12 +17,12 @@
 ## 当前状态
 
 - 已创建独立项目结构和 Git 仓库。
-- 已实现 E8 最近格点、支持减性 dither 的嵌套 Voronoi 编解码，以及给定 beta 候选集时的行归一化/分块量化参考版；架构按 core、models、evaluation、experiments 分层，78 项单元测试通过。
+- 已实现 E8 最近格点、支持减性 dither 的嵌套 Voronoi 编解码，以及给定 beta 候选集时的行归一化/分块量化参考版；架构按 core、models、evaluation、experiments 分层，101 项主项目单元测试通过。
 - Appendix F DP 已在合成表上通过穷举对照；合成矩阵乘积 toy/多 seed 实验已输出 RTN-W4、8D 块 L∞ W4 和 NestQuant 质量仿真指标 JSON/CSV。Llama-3.2-1B Base 的 BF16、RTN W4、NestQuant W4 已在完整 WikiText-2 test 上完成首轮质量仿真，保存 JSON manifest、CSV 和结果说明；NestQuant 候选集包含超出论文上限的项目扩展值，详见结果边界。
 - NQPK v1、NQRT v2 和 NQMC v1 已实现；Llama-3.2-1B 的 NQMC 导出、回载、文件字节数及完整 WikiText-2 PPL 已完成，见 [模型级结果](../results/llama32_1b_nqmc_w4_full.md)。低比特 kernel、端到端延迟和吞吐仍未测量。
 - 已加入 [signed-Hadamard 权重旋转消融](weight_rotation.md)，通过 FP64 数学验证与真实模型恒等量化器检查；完整 WikiText-2 test 的两个旋转 seed 均优于无旋转版本。旋转与 block-LDLQ 已通过 `R^T H R` 合并；seed 123/124 的同源码组合 PPL 为 10.136666/10.121536，均优于对应仅旋转 11.004825/11.147938 与仅 LDLQ 10.276133；见[两种子消融](../results/llama32_1b_w4_rotation_ldlq_ablation.md)。旋转模式暂不导出 NQMC。
 - Completed WikiText-2 train Hessian calibration and 8-column E8 block-LDLQ. The 16/64-chunk W4 PPL values are 10.323714/10.276133. QA-LDLQ has since been implemented and evaluated; see the current QA stage result below.
-- Completed A4 and W4A4KV4 quality simulation: batch-4 W4/W4KV4/W4A4KV4 PPL is 10.276601/10.732014/11.578171. QA-LDLQ is now implemented; its default epsilon constant 155 degraded W4 and W4A4KV4 quality, so epsilon/Hessian-scale calibration is the next algorithm question.
+- Completed A4 and W4A4KV4 quality simulation: batch-4 W4/W4KV4/W4A4KV4 PPL is 10.276601/10.732014/11.578171. QA-LDLQ was implemented and the epsilon/Hessian normalization mismatch was subsequently audited; the bounded corrected run did not improve over ordinary LDLQ, so this route is closed without post-hoc wider tuning.
 - train64 block-LDLQ 已完成 NQMC 导出和无 Hessian 独立回载：文件 659,281,364 B，有效码率 4.267043 bit/量化参数，三条执行路径 PPL 精确一致为 10.276132955046；见 [LDLQ NQMC 报告](../results/llama32_1b_w4_ldlq_nqmc.md)。
 
 ## Shared calibration protocol (2026-10-22)

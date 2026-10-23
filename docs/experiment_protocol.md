@@ -34,7 +34,7 @@
 
 NestQuant W4 对 RTN W4 是首要同范围比较。W4A4KV4 对比 W4-only 方法时，必须标明量化范围不同，不能直接据此归因算法优劣。QuaRot 需按它实际支持的模块和配置记录，不能声称未验证过的设置已经等价。
 
-首轮模型脚本将 RTN W4 定义为 Linear 权重按输出行、group size 128 的对称 fake quant；NestQuant W4 为 Linear 权重行归一化、8维 E8 块、q=14、在项目固定候选 `[3.5, 4.5, 6.0, 14.5, 25.0, 40.0, 50.0, 100.0]` 中用 Appendix F DP 选 4 个，再按 Opt-beta 量化。论文附录 G 报告搜索全集到 40.0/q，并从中选出默认列表 `[3.5, 4.5, 6.0, 14.5, 25.0]/q`；本项目把 40.0 加入选中候选，并用超出该报告搜索全集的 50.0 覆盖模型归一化权重块。候选子集仍非论文完整 beta 网格搜索。量化以 512 个输出行为一批处理。两者均以 BF16 浮点权重保存反量化值并继续执行 BF16 计算。NestQuant 已实现 signed-Hadamard 权重旋转和 E8 block-LDLQ 的独立与组合消融，也已完成 post-RoPE 匹配 Q/K 旋转及逐 attention-head KV4 的质量仿真。仍不含论文完整全模型旋转图、A4、QA-LDLQ 或 KV4 低比特 kernel，不能称为完整论文实现。
+首轮模型脚本将 RTN W4 定义为 Linear 权重按输出行、group size 128 的对称 fake quant；NestQuant W4 为 Linear 权重行归一化、8维 E8 块、q=14，并从项目候选中选取 beta。候选来源必须按实验区分：论文合成实验使用 `0.5×{1,...,50}` 网格；固定作者 commit 的 LLM 权重 CLI 默认值是 `[4.0,5.5,7.0,18.0]`；本项目正式配置使用包含 40、50 的扩展候选，100 只为 QA-LDLQ 观察到的 outlier 提供覆盖。这些配置不能统称为论文默认值。量化以 512 个输出行为一批处理，并以 BF16 浮点权重保存反量化值继续计算。项目已完成 signed-Hadamard 权重消融、E8 block-LDLQ、A4、post-RoPE 匹配 Q/K 旋转、逐 attention-head KV4 和 QA-LDLQ 尺度审计；尚未完成论文 §4.3 权重融合旋转与在线输入旋转的逐项上游等价验证，也没有 A/KV packed 存储或低比特 kernel。完整对应关系见 [论文实现矩阵](paper_implementation_matrix.md)。
 
 ## 文本与 token 口径
 

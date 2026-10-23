@@ -47,6 +47,8 @@
       50.0,
       100.0
     ],
+    "weight_beta_profile_id": "project_extended_llama32_1b_w4_v1",
+    "weight_beta_profile_registry": "configs/beta_profiles.v1.json",
     "beta_grid_note": "The paper Appendix G reports a search universe up to 40.0/q and a selected default list ending at 25.0/q. This project adds 40.0 to that selected list and extends the reported universe with 50.0 for normalized baseline blocks and 100.0 for the observed QA-LDLQ outlier coverage. These project extensions are disclosed and are not paper defaults.",
     "quantization_scope": "torch.nn.Linear weights only; BF16 compute after dequantization"
   },

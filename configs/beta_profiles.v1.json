@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "scale_convention": "coefficient_numerator; codec beta equals coefficient / q",
+  "profiles": {
+    "paper_synthetic_grid": {
+      "scope": "synthetic_matrix_product",
+      "values": {
+        "start": 0.5,
+        "stop": 25.0,
+        "step": 0.5
+      },
+      "selected_count": "experiment_dependent",
+      "source": "paper PDF page 9 section 5.1: 0.5 * {1,...,50}",
+      "paper_equivalent": true
+    },
+    "upstream_weight_cli_default_q14": {
+      "scope": "llm_weight",
+      "values": [4.0, 5.5, 7.0, 18.0],
+      "selected_count": 4,
+      "source": "cookiedoth/nestquant@6b269f84264afad990a09248d8eeb45d5f6248ff parallel/w_quant.py",
+      "paper_equivalent": "not_confirmed"
+    },
+    "upstream_activation_cli_default_q14": {
+      "scope": "llm_activation",
+      "values": [3.47, 4.74, 6.90, 18.11],
+      "selected_count": 4,
+      "source": "cookiedoth/nestquant@6b269f84264afad990a09248d8eeb45d5f6248ff parallel/ppl.py",
+      "paper_equivalent": "not_confirmed"
+    },
+    "upstream_key_cli_default_q14": {
+      "scope": "llm_key_cache",
+      "values": [3.50, 4.58, 6.47, 17.06],
+      "selected_count": 4,
+      "source": "cookiedoth/nestquant@6b269f84264afad990a09248d8eeb45d5f6248ff parallel/ppl.py",
+      "paper_equivalent": "not_confirmed"
+    },
+    "upstream_value_cli_default_q14": {
+      "scope": "llm_value_cache",
+      "values": [3.53, 5.59, 9.62, 29.03],
+      "selected_count": 4,
+      "source": "cookiedoth/nestquant@6b269f84264afad990a09248d8eeb45d5f6248ff parallel/ppl.py",
+      "paper_equivalent": "not_confirmed"
+    },
+    "project_extended_llama32_1b_w4_v1": {
+      "scope": "llm_weight",
+      "values": [3.5, 4.5, 6.0, 14.5, 25.0, 40.0, 50.0, 100.0],
+      "selected_count": 4,
+      "source": "project protocol; DP selects a subset per tensor",
+      "paper_equivalent": false,
+      "limitations": [
+        "40 and 50 extend the selected set used in the first model experiments",
+        "100 was added only to cover a QA-LDLQ outlier and is not a paper default"
+      ]
+    }
+  }
+}

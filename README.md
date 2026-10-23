@@ -68,7 +68,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 99 项主项目测试，覆盖 E8、codec、multi-beta、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 101 项主项目测试，覆盖 E8、codec、multi-beta、beta来源防漂移、rotation、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
@@ -121,7 +121,7 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         88 项分层单元测试
+tests/unit/         101 项分层单元测试
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁
@@ -138,6 +138,8 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [KV-cache 量化](docs/kv_cache_quantization.md)
 - [低比特容器格式](docs/packing_format.md)
 - [QA-LDLQ 负结果与尺度审计](docs/qa_ldlq.md)
+- [当前正式结果与历史结果分层](docs/current_results.md)
+- [论文、作者代码与本项目对应矩阵](docs/paper_implementation_matrix.md)
 - [NestQuant 与 QuaRot 对照](results/llama32_1b_quarot_comparison.md)
 - [简历证据边界](docs/resume_evidence.md)
 

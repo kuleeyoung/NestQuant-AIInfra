@@ -74,4 +74,4 @@ from nestquant.experiments.matrix_product import run_synthetic_matrix_product
 
 ## 当前阶段状态
 
-架构拆分只改变 Python 模块边界和导入路径，没有改变量化数学、PPL 口径或实验参数。NestQuant LLM adapter 仍属于有限范围复现；普通 W4 与 block-LDLQ W4 已有真实低比特模型文件，但载入后都会反量化执行。权重旋转和 E8 block-LDLQ 已通过旋转协方差组合并完成四组质量消融；KV4 已实现 post-RoPE 匹配 Q/K 旋转与逐 head E8 浮点质量仿真。完整全模型旋转图、旋转 NQMC、QA-LDLQ、packed KV cache 和低比特推理 kernel 仍属于后续阶段。
+架构拆分只改变 Python 模块边界和导入路径，没有改变量化数学、PPL 口径或实验参数。NestQuant LLM adapter 仍属于有限范围复现；普通 W4 与 block-LDLQ W4 已有真实低比特模型文件，但载入后都会反量化执行。权重旋转和 E8 block-LDLQ 已通过旋转协方差组合并完成四组质量消融；KV4 已实现 post-RoPE 匹配 Q/K 旋转与逐 head E8 浮点质量仿真。QA-LDLQ 已实现、完成 2048 倍 Hessian 归一化差异审计，并在有界修正后得到未优于普通 LDLQ 的负结果。尚未完成的是论文 §4.3 权重融合旋转与在线激活旋转的逐项上游对齐、旋转元数据 NQMC、packed KV cache 和低比特推理 kernel。具体差距见 [论文实现对应矩阵](paper_implementation_matrix.md)。

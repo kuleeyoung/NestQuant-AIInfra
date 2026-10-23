@@ -4,6 +4,8 @@
 
 大模型权重、缓存、原始数据和大体积日志留在本机目录，不上传 Git。论文参考值单独标注来源，不能混入本地实测结果。首轮 Llama-3.2-1B WikiText-2 质量仿真已完成，结论和边界见 [首轮结果说明](llama32_1b_wikitext2_first_run.md)，可复核 manifest 与 CSV 也保存在本目录。
 
+当前推荐引用结果、历史结果和暂缓结果的分层见 [`docs/current_results.md`](../docs/current_results.md)。新报告和简历应优先引用 shared128、BF16 `lm_head` 的正式矩阵；首轮、train64 和普通 W4 NQMC 文档作为开发过程证据保留，不用较旧数字覆盖当前主结果。
+
 ## WikiText-2 PPL 汇总
 
 模型评测脚本每次运行都会在 `results/raw/` 生成独立 JSON manifest（包括失败和 smoke run）。完成若干次评测后，可用以下命令生成便于查看的 CSV：
