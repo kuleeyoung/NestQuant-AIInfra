@@ -92,4 +92,4 @@ python scripts/run_reproduction.py \
 
 ## 下游任务评测
 
-PIQA/HellaSwag 入口为 `scripts/evaluate_downstream_tasks.py`，固定使用 `lm_eval==0.4.13`。它支持 `bf16`、`w4` 和 `w4a4kv4` 三档；W4从同一个NQMC回载，W4A4KV4为每次harness前向创建独立的量化cache。正式夜间脚本为 `scripts/run_downstream_full_overnight.sh`，按BF16、W4、W4A4KV4顺序运行，并支持根据已完成JSON断点续跑。
+PIQA/HellaSwag 入口为 `scripts/evaluate_downstream_tasks.py`，固定使用 `lm_eval==0.4.13`。它支持 `bf16`、`w4` 和 `w4a4kv4` 三档；W4从同一个NQMC回载，W4A4KV4为每次harness前向创建独立的量化cache。正式夜间脚本为 `scripts/run_downstream_full_overnight.sh`，按BF16、W4、W4A4KV4顺序运行，并支持根据已完成JSON断点续跑。三档完成后，`scripts/summarize_downstream_results.py`核对协议、数据指纹和逐样本身份，生成机器可读汇总与Markdown报告。

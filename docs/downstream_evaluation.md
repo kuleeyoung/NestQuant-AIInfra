@@ -53,6 +53,8 @@ Windows任务计划名称：`NestQuant-PIQA-HellaSwag-20261024`。
 - 输出目录：`results/raw/downstream_full_20261024/`；
 - 主日志：`overnight.log`；
 - 总状态：`overnight_status.json`；
+- 机器可读汇总：`summary.json`；
+- 可审阅报告：`results/llama32_1b_downstream_full.md`；
 - 模型和数据集均使用本地缓存离线运行；
 - 已完成的单方法JSON会被跳过，因此支持再次触发后断点续跑。
 
@@ -66,6 +68,8 @@ Windows任务计划名称：`NestQuant-PIQA-HellaSwag-20261024`。
 - 数据缓存：PIQA validation 1,838题，HellaSwag validation 10,042题。
 
 smoke分数的样本数太小，只用于验证代码路径，不能进入简历或正式质量结论。
+
+完整三档结果生成后，`scripts/summarize_downstream_results.py` 会先核对模型、revision、任务、lm-eval版本、数据指纹、任务定义哈希以及逐样本身份，再计算分数差和相对BF16的逐题正确性变化。任一协议或样本集合不一致时，汇总会失败，不生成可用于比较的报告。
 
 ## 证据边界
 

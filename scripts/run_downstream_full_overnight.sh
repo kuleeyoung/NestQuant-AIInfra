@@ -75,6 +75,11 @@ run_method bf16
 run_method w4
 run_method w4a4kv4
 
+python scripts/summarize_downstream_results.py \
+  --run-dir "$RUN_DIR" \
+  --json-output "$RUN_DIR/summary.json" \
+  --markdown-output "$PROJECT_ROOT/results/llama32_1b_downstream_full.md"
+
 printf '{"status":"completed","finished_at":"%s"}\n' \
   "$(date --iso-8601=seconds)" > "$RUN_DIR/overnight_status.json"
 echo "[$(date --iso-8601=seconds)] overnight downstream evaluation completed"
