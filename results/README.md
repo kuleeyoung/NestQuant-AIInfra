@@ -14,6 +14,8 @@ NQMC 加载器已经完成从整文件/整 state-dict 常驻到分块校验、�
 
 论文式 Hadamard 与 shared128 block-LDLQ 的组合 PPL 为 10.076729，相对仅 LDLQ 的 10.211760 继续下降 1.322%；两项收益近似可加。四因素消融、自包含 NQMC 和结论边界见[Hadamard/LDLQ 组合报告](llama32_1b_paper_hadamard_ldlq_ablation.md)。
 
+局部 `X H` 坐标 A4 已接入该最佳 W4 检查点：首窗口控制/W4A4 PPL 为 7.462738/7.860542，112 个模块均在局部坐标量化；5.46% overload 需要在完整运行与 beta 校准中继续审计。见[W4A4 首窗口 smoke](llama32_1b_paper_hadamard_w4a4_smoke.md)。
+
 论文 §4.3 的局部 `WH` 权重与在线 `XH` 输入路径已完成短 token 数值 smoke；1/7/112 个 Linear 的相对 L2 logits 误差为 0.9554%/1.0751%/1.0964%，本次 top-1 均一致。该结果只用于旋转语义排错，见 [Hadamard 坐标 smoke](llama32_1b_hadamard_coordinate_smoke.md)。
 
 ## WikiText-2 PPL 汇总

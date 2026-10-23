@@ -37,7 +37,7 @@
 | 权重—激活匹配旋转 | PDF p.7 §4.3：每个 Linear 使用匹配 H | `parallel/w_quant.py` 与 `parallel/quant_utils.py` 使用 `kron_h_ip` | `models/rotated_linear.py` 保存 `W H` 并在前向在线计算 `X H`；W4、LDLQ 坐标和 NQMC 元数据已接入 | Llama-3.2-1B W4 与 shared128 LDLQ 组合完整 PPL 已验证 | 需组合 A4，并与固定上游按层比较 |
 | 非 2 次幂旋转 | PDF p.7 §4.3：`H1⊗H2`；p.21-22 Table 7 | `hadamard.py::kron_h_ip` 对固定模型尺寸提供硬编码 Hadamard | 当前核心旋转只支持 2 次幂；Llama-3.2-1B 的 2048/8192 输入维度均可覆盖 | 当前目标模型不阻塞 | 若扩展到论文 Llama-3-8B 的 14336 维 down projection，需实现并核对 Kronecker 路径 |
 | Q/K 旋转与 K/V 量化 | PDF p.8-9 §4.3/Fig.4 | `parallel/model.py` post-RoPE 对 Q/K 做 head-dim Hadamard，量化 K/V | `evaluation/kv_cache.py` | 质量路径已实现 | 需做固定上游逐张量等价测试；当前 cache 存浮点重构值 |
-| 激活量化 | PDF p.7-9：Linear 前旋转并量化 | `parallel/quant_utils.py` forward-pre-hook | `evaluation/activation_quantization.py` | 质量仿真已实现 | beta、旋转与列并行分类需逐层对齐上游 |
+| 激活量化 | PDF p.7-9：Linear 前旋转并量化 | `parallel/quant_utils.py` forward-pre-hook | `evaluation/activation_quantization.py`；普通坐标往返与局部 `X H` 直接 A4 | 局部坐标 A4 首窗口已验证 | 需跑完整 PPL；beta、dither 与列并行分类仍需逐层对齐上游 |
 | A/K/V 默认 beta | 论文正文确认逐层 DP，正文未给 CLI 默认值 | `parallel/ppl.py`：A `[3.47,4.74,6.90,18.11]`，K `[3.50,4.58,6.47,17.06]`，V `[3.53,5.59,9.62,29.03]` | 版本化 KV beta 配置与项目 A beta 常量 | 部分对齐 | 配置需标注 upstream CLI default 或项目校准 |
 | block-LDLQ | PDF p.8 §4.3、Appendix B | `coder.py::block_LDL`、`encode_matrix_LDLQ_*` | `core/ldlq.py`、分组 Hessian store | 已实现并完成 shared128 结果 | 归一化口径需持续记录 |
 | QA-LDLQ | PDF p.8-9 §4.5，`W~=WH(H+J)^-1` | `parallel/quant_utils.py` 的 `eps` 调整；`parallel/err.py` | QA 权重调整、激活二阶矩与尺度审计 | 公式实现完成，结果为负 | 本地未复现论文增益 |
@@ -53,7 +53,7 @@
 后续按下面顺序推进：
 
 1. 已完成完整 288,627-token WikiText-2 PPL：同协议普通 W4 为 11.054059，局部 Hadamard W4 为 10.917094；
-2. 已与 shared128 LDLQ 组合：仅 LDLQ 为 10.211760，组合为 10.076729；下一步接入 A4，并明确在线 Hadamard 与激活量化的先后和尺度语义；
+2. 已与 shared128 LDLQ 组合，并完成 `X -> XH -> A4 -> Linear(WH)` 首窗口 smoke；下一步运行完整 A4 PPL并继续校准 overload；
 3. 对固定上游和本项目的量化前张量、旋转后张量、重构张量逐层比较；
 4. 扩展到非 2 次幂模型时，实现并核对 `H1⊗H2` Kronecker 路径；
 5. Q/K 的 post-RoPE 旋转、KV4 和低比特 kernel 保持为独立验证项。

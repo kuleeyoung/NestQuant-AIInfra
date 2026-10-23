@@ -129,8 +129,6 @@ def main() -> None:
         raise ValueError("--rotation-seed requires only nestquant_w4 and no checkpoint import/export")
     if args.paper_hadamard and (methods != ["nestquant_w4"] or args.rotation_seed is not None):
         raise ValueError("--paper-hadamard requires only nestquant_w4 and excludes --rotation-seed")
-    if args.paper_hadamard and args.a4:
-        raise ValueError("--paper-hadamard A4 integration is not implemented yet")
     if args.ldlq_hessian_dir is not None and (
             methods != ["nestquant_w4"] or args.load_checkpoint):
         raise ValueError(

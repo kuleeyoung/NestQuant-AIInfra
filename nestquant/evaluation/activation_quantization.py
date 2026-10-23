@@ -10,6 +10,7 @@ import torch
 
 from ..core.rotation import hadamard
 from ..core.runtime_quantization import fake_quantize_nestquant_rows
+from ..models.rotated_linear import HadamardRotatedLinear
 
 
 LLAMA_PROJECTION_SUFFIXES = (
@@ -29,7 +30,7 @@ class ActivationQuantizationStats:
     def __init__(self) -> None:
         self._records: dict[str, dict[str, Any]] = {}
 
-    def record(self, module_name: str, stats: dict) -> None:
+    def record(self, module_name: str, stats: dict, *, coordinates: str) -> None:
         current = self._records.setdefault(module_name, {
             "updates": 0,
             "vector_count": 0,
@@ -44,9 +45,11 @@ class ActivationQuantizationStats:
             "betas": stats["betas"],
             "feature_count": stats["feature_count"],
             "storage_estimate": stats["storage_estimate"],
+            "coordinates": coordinates,
         })
         if (current["q"] != stats["q"] or current["betas"] != stats["betas"]
-                or current["feature_count"] != stats["feature_count"]):
+                or current["feature_count"] != stats["feature_count"]
+                or current["coordinates"] != coordinates):
             raise ValueError("inconsistent activation quantization configuration")
         current["updates"] += 1
         for field in ("vector_count", "entry_count", "e8_block_count"):
@@ -96,7 +99,7 @@ class ActivationQuantizationStats:
         return {
             "status": "fake_quant_quality_simulation",
             "location": "inputs_to_llama_attention_and_mlp_projection_linears",
-            "rotation": "normalized_hadamard_before_e8_and_inverse_after_reconstruction",
+            "coordinate_modes": sorted({item["coordinates"] for item in modules.values()}),
             "runtime_dtype": "floating_point_reconstruction",
             "module_count": len(modules),
             "entry_count": total_entries,
@@ -124,7 +127,13 @@ def enable_activation_quantization(
     rows_per_chunk: int = 4096,
     stats: ActivationQuantizationStats | None = None,
 ) -> tuple[ActivationQuantizationStats, list[torch.utils.hooks.RemovableHandle]]:
-    """Attach A4 pre-hooks to the seven Llama projection types per layer."""
+    """Attach A4 simulation to the seven Llama projection types per layer.
+
+    Ordinary Linear modules retain the upstream-equivalent ``H -> A4 -> H``
+    round trip.  ``HadamardRotatedLinear`` modules quantize their already
+    rotated ``X H`` input directly, avoiding two redundant transforms while
+    producing the same dot product coordinates.
+    """
     accumulator = stats if stats is not None else ActivationQuantizationStats()
     handles = []
     matched = []
@@ -133,19 +142,45 @@ def enable_activation_quantization(
     # that source tensor is alive removes duplicate work without changing the
     # simulated value.  A weak reference prevents cross-forward reuse when an
     # allocator later recycles the same Python id or storage address.
-    cache: dict[int, tuple[weakref.ReferenceType, torch.Tensor, dict]] = {}
+    cache: dict[tuple[int, str], tuple[weakref.ReferenceType, torch.Tensor, dict]] = {}
     for name, module in model.named_modules():
         if not name.endswith(LLAMA_PROJECTION_SUFFIXES):
             continue
-        if not isinstance(module, torch.nn.Linear):
-            raise TypeError(f"expected torch.nn.Linear at {name}")
+        if not isinstance(module, (torch.nn.Linear, HadamardRotatedLinear)):
+            raise TypeError(f"expected Linear or HadamardRotatedLinear at {name}")
         matched.append(name)
+
+        if isinstance(module, HadamardRotatedLinear):
+            def rotated_hook(_module, source, rotated, *, module_name=name):
+                key = (id(source), "local_hadamard_input")
+                cached = cache.get(key)
+                if cached is not None and cached[0]() is source:
+                    restored, quant_stats = cached[1], cached[2]
+                else:
+                    restored, quant_stats = fake_quantize_nestquant_rows(
+                        rotated.float(), q=q, betas=betas, rows_per_chunk=rows_per_chunk,
+                    )
+                    restored = restored.to(dtype=rotated.dtype)
+
+                    def clear(reference, *, source_id=key):
+                        current = cache.get(source_id)
+                        if current is not None and current[0] is reference:
+                            cache.pop(source_id, None)
+
+                    cache[key] = (weakref.ref(source, clear), restored, quant_stats)
+                accumulator.record(
+                    module_name, quant_stats, coordinates="local_hadamard_input"
+                )
+                return restored
+
+            handles.append(module.register_rotated_input_hook(rotated_hook))
+            continue
 
         def hook(_module, inputs, *, module_name=name):
             if not inputs or not isinstance(inputs[0], torch.Tensor):
                 raise TypeError(f"{module_name} must receive a tensor as its first input")
             source = inputs[0]
-            key = id(source)
+            key = (id(source), "original_input_after_hadamard_round_trip")
             cached = cache.get(key)
             if cached is not None and cached[0]() is source:
                 restored, quant_stats = cached[1], cached[2]
@@ -162,7 +197,10 @@ def enable_activation_quantization(
                         cache.pop(source_id, None)
 
                 cache[key] = (weakref.ref(source, clear), restored, quant_stats)
-            accumulator.record(module_name, quant_stats)
+            accumulator.record(
+                module_name, quant_stats,
+                coordinates="original_input_after_hadamard_round_trip",
+            )
             return (restored,) + tuple(inputs[1:])
 
         handles.append(module.register_forward_pre_hook(hook))

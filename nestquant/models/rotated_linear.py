@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Collection
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.hooks import RemovableHandle
 
 from ..core.rotation import hadamard
 
@@ -68,6 +71,7 @@ class HadamardRotatedLinear(nn.Module):
         self.output_dtype = rotated_weight.dtype if output_dtype is None else output_dtype
         self.weight = nn.Parameter(rotated_weight.detach().clone())
         self.bias = None if bias is None else nn.Parameter(bias.detach().clone())
+        self._rotated_input_hooks: OrderedDict[int, Callable] = OrderedDict()
 
     @classmethod
     def from_linear(
@@ -97,12 +101,37 @@ class HadamardRotatedLinear(nn.Module):
         """Return the current rotated weight mapped back to original coordinates."""
         return hadamard(self.weight)
 
+    def register_rotated_input_hook(
+        self,
+        hook: Callable[["HadamardRotatedLinear", torch.Tensor, torch.Tensor], torch.Tensor],
+    ) -> RemovableHandle:
+        """Register a transform applied after ``X H`` and before the Linear.
+
+        The hook receives ``(module, original_input, rotated_input)`` and must
+        return a tensor with the same shape as ``rotated_input``.  It allows A4
+        quality simulation to quantize directly in the paper's local Hadamard
+        coordinates without an inverse/forward Hadamard round trip.
+        """
+        if not callable(hook):
+            raise TypeError("rotated input hook must be callable")
+        handle = RemovableHandle(self._rotated_input_hooks)
+        self._rotated_input_hooks[handle.id] = hook
+        return handle
+
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         if inputs.shape[-1] != self.in_features:
             raise ValueError(
                 f"input feature dimension {inputs.shape[-1]} does not match {self.in_features}"
             )
-        outputs = F.linear(hadamard(inputs.to(self.weight.dtype)), self.weight, self.bias)
+        rotated = hadamard(inputs.to(self.weight.dtype))
+        for hook in tuple(self._rotated_input_hooks.values()):
+            transformed = hook(self, inputs, rotated)
+            if not isinstance(transformed, torch.Tensor):
+                raise TypeError("rotated input hook must return a tensor")
+            if transformed.shape != rotated.shape:
+                raise ValueError("rotated input hook must preserve input shape")
+            rotated = transformed
+        outputs = F.linear(rotated, self.weight, self.bias)
         return outputs.to(self.output_dtype)
 
 

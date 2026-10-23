@@ -8,6 +8,7 @@ from nestquant.evaluation.activation_quantization import (
     ActivationQuantizationStats,
     enable_activation_quantization,
 )
+from nestquant.models.rotated_linear import convert_linears_to_hadamard_coordinates_
 
 
 class TestActivationQuantization(unittest.TestCase):
@@ -48,6 +49,48 @@ class TestActivationQuantization(unittest.TestCase):
                 torch.nn.Sequential(torch.nn.Linear(8, 8)),
                 q=14, betas=(0.25, 0.5),
             )
+
+    def test_local_hadamard_a4_matches_upstream_round_trip_coordinates(self):
+        class Projection(torch.nn.Module):
+            def __init__(self, linear):
+                super().__init__()
+                self.model = torch.nn.Module()
+                self.model.layers = torch.nn.ModuleList([torch.nn.Module()])
+                self.model.layers[0].self_attn = torch.nn.Module()
+                self.model.layers[0].self_attn.q_proj = linear
+
+            def forward(self, inputs):
+                return self.model.layers[0].self_attn.q_proj(inputs)
+
+        generator = torch.Generator().manual_seed(83)
+        ordinary = Projection(torch.nn.Linear(16, 7, bias=False, dtype=torch.float64))
+        local = Projection(torch.nn.Linear(16, 7, bias=False, dtype=torch.float64))
+        local.load_state_dict(ordinary.state_dict())
+        convert_linears_to_hadamard_coordinates_(local)
+        ordinary_stats, ordinary_handles = enable_activation_quantization(
+            ordinary, q=14, betas=(0.25, 0.5, 0.75, 1.5), rows_per_chunk=8,
+        )
+        local_stats, local_handles = enable_activation_quantization(
+            local, q=14, betas=(0.25, 0.5, 0.75, 1.5), rows_per_chunk=8,
+        )
+        inputs = torch.randn(2, 3, 16, generator=generator, dtype=torch.float64)
+        with torch.inference_mode():
+            expected = ordinary(inputs)
+            actual = local(inputs)
+        # The ordinary path performs an inverse Hadamard followed by another
+        # forward Hadamard before the Linear.  The local-coordinate path omits
+        # those two mathematically cancelling FP32 transforms, so it is
+        # equivalent within floating-point rounding rather than bit-identical.
+        torch.testing.assert_close(actual, expected, atol=2e-6, rtol=2e-6)
+        self.assertEqual(
+            ordinary_stats.summary()["coordinate_modes"],
+            ["original_input_after_hadamard_round_trip"],
+        )
+        self.assertEqual(
+            local_stats.summary()["coordinate_modes"], ["local_hadamard_input"]
+        )
+        for handle in ordinary_handles + local_handles:
+            handle.remove()
 
 
 if __name__ == "__main__":

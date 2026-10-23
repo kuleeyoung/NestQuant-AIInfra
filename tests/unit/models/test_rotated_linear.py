@@ -73,6 +73,41 @@ class TestHadamardRotatedLinear(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             rotated(torch.ones(2, 7))
 
+    def test_rotated_input_hook_runs_after_hadamard_and_is_removable(self):
+        linear = nn.Linear(8, 3, bias=False, dtype=torch.float64)
+        rotated = HadamardRotatedLinear.from_linear(linear)
+        inputs = torch.randn(2, 8, dtype=torch.float64)
+        observed = []
+
+        def hook(_module, original, coordinates):
+            observed.append((original.detach().clone(), coordinates.detach().clone()))
+            return torch.zeros_like(coordinates)
+
+        handle = rotated.register_rotated_input_hook(hook)
+        torch.testing.assert_close(
+            rotated(inputs), torch.zeros(2, 3, dtype=torch.float64), atol=0, rtol=0
+        )
+        torch.testing.assert_close(observed[0][0], inputs, atol=0, rtol=0)
+        torch.testing.assert_close(
+            observed[0][1], hadamard(inputs), atol=1e-12, rtol=1e-12
+        )
+        handle.remove()
+        torch.testing.assert_close(rotated(inputs), linear(inputs), atol=1e-12, rtol=1e-12)
+
+    def test_rotated_input_hook_validates_return_value(self):
+        rotated = HadamardRotatedLinear.from_linear(
+            nn.Linear(8, 3, bias=False, dtype=torch.float64)
+        )
+        inputs = torch.randn(2, 8, dtype=torch.float64)
+        handle = rotated.register_rotated_input_hook(lambda *_: None)
+        with self.assertRaisesRegex(TypeError, "must return a tensor"):
+            rotated(inputs)
+        handle.remove()
+        handle = rotated.register_rotated_input_hook(lambda *args: args[-1][..., :-1])
+        with self.assertRaisesRegex(ValueError, "preserve input shape"):
+            rotated(inputs)
+        handle.remove()
+
     def test_model_converter_preserves_outputs_and_reports_selection(self):
         class Model(nn.Module):
             def __init__(self):

@@ -28,7 +28,7 @@ PyTorch 的线性层记为 `Y = X W^T`。对每层设 `R = D H`，其中 `D` 是
 - `scripts/check_rotation_equivalence.py`：真实 1B 模型 113 层的恒等量化器检查，用一个固定 32-token 输入比较 logits。此检查范围有限，不代替全量 PPL。
 - `models/rotated_linear.py`：论文 §4.3 的局部参考路径，离线保存 `W H`，前向在线计算 `X H`；未量化时与原 `Linear` 严格等价。当前只支持 2 的幂输入维度，覆盖 Llama-3.2-1B 的 2048/8192 Linear 输入，不宣称已覆盖论文 Llama-3-8B 的 14336 维 Kronecker 路径。
 
-论文式局部路径现已接入 W4 与 NQMC：`--paper-hadamard` 先把支持的 Linear 转换为保存 `W H`、在线计算 `X H` 的模块，再直接量化旋转坐标权重；使用 LDLQ 时同步把输入 Hessian 变换到 Hadamard 坐标。NQMC 保存版本化的转换模块、tied 跳过项和非 2 次幂跳过项，独立回载会先恢复同一模块结构。当前只开放 W4/W4+LDLQ；A4 与该在线旋转的合并语义尚未实现，CLI 会显式拒绝该组合。
+论文式局部路径现已接入 W4、LDLQ、A4 与 NQMC：`--paper-hadamard` 先把支持的 Linear 转换为保存 `W H`、在线计算 `X H` 的模块，再直接量化旋转坐标权重；使用 LDLQ 时同步把输入 Hessian 变换到 Hadamard 坐标；使用 A4 时直接量化模块内部的 `X H`，不执行逆变换。NQMC 保存版本化的转换模块、tied 跳过项和非 2 次幂跳过项，独立回载会先恢复同一模块结构。A4 已完成首窗口 smoke，完整 PPL 尚未运行。
 
 完整 WikiText-2 test 结果显示，在同样保留 BF16 `lm_head`、8 个 beta 候选和 seed 58 的无 LDLQ W4 协议下，普通 W4 PPL 为 11.054059，论文式局部 Hadamard W4 为 10.917094，绝对下降 0.136964、相对下降 1.239%。
 
