@@ -23,6 +23,7 @@
 | NestQuant W4A4KV4 PPL | 11.504096 | 同上 | 正式质量仿真 |
 | 论文式 Hadamard W4 PPL | 10.917094 | [局部 Hadamard W4 完整报告](../results/llama32_1b_paper_hadamard_w4_full.md) | 同协议普通 W4 为 11.054059；无 LDLQ |
 | 论文式 Hadamard + shared128 LDLQ W4 PPL | **10.076729** | [Hadamard/LDLQ 组合消融](../results/llama32_1b_paper_hadamard_ldlq_ablation.md) | 当前最佳 W4；真实 NQMC 回载 |
+| 论文式 Hadamard + shared128 LDLQ W4A4 PPL | **10.688878** | [局部 Hadamard W4A4 完整报告](../results/llama32_1b_paper_hadamard_w4a4_full.md) | 固定上游全局 A beta；局部 `X H` 坐标 fake quant |
 | QuaRot 兼容移植 GPTQ W4 PPL | 10.508346 | [QuaRot 对照](../results/llama32_1b_quarot_comparison.md) | 同校准/测试兼容移植，不是官方 Llama-3.2 结果 |
 | QuaRot 兼容移植 W4A4KV4 PPL | 21.095586 | 同上 | fake-quant 兼容移植 |
 | 共享校准 W4 NQMC | 1,044,557,140 B | [共享校准递进报告](../results/llama32_1b_shared128_w4a4kv4_progression.md) | 真实文件和独立回载；不证明低比特执行 |
@@ -49,6 +50,7 @@ PIQA/HellaSwag 完整评测已暂缓。相关脚本和严格汇总器保留，�
 - 可以陈述真实 NQMC 文件字节数、哈希、独立回载和 PPL 一致性；
 - 可以陈述论文式 `W H`/`X H` 已完成 112 层、自包含 NQMC、独立回载和完整 288,627-token PPL；同协议无 LDLQ W4 中 PPL 从 11.054059 降至 10.917094；
 - 可以陈述论文式 Hadamard 与 shared128 LDLQ 近似可加：组合 PPL 为 10.076729，相对仅 LDLQ 的 10.211760 继续下降 1.322%；
+- 可以陈述该组合检查点接入局部坐标 A4 后 PPL 为 10.688878；A4 相对 W4 增加 6.075%，完整激活 overload 为 5.4411%；
 - 可以陈述固定协议下的 PPL 与消融；
 - A4/KV4 仍是质量仿真，不能声称低比特张量常驻显存；
 - 没有 INT4 GEMM 或融合 kernel，不能声称推理加速；

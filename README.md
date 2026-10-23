@@ -22,6 +22,8 @@
 | NestQuant block-LDLQ W4 | 10.276601 | 64 个训练窗口校准 |
 | NestQuant block-LDLQ W4，共享校准 | 10.277472 | 与 QuaRot 相同的 128 个随机训练窗口；量化 `lm_head` |
 | NestQuant block-LDLQ W4，同范围 | **10.211760** | 128 个共享窗口；与 QuaRot 一样保留 `lm_head` BF16 |
+| 论文式 Hadamard + shared128 LDLQ W4 | **10.076729** | 局部 `W H` / 在线 `X H`；当前最佳 W4 |
+| 论文式 Hadamard + shared128 LDLQ W4A4 | **10.688878** | A4 直接作用于局部 `X H`；固定上游全局 beta |
 | NestQuant W4KV4，共享校准 | 10.668994 | 同一 NQMC W4；E8 post-RoPE K/V fake quant |
 | NestQuant W4A4，共享校准 | 10.952032 | 同一 NQMC W4；E8 Linear 输入 fake quant |
 | NestQuant W4A4KV4，共享校准 | **11.504096** | 同一 NQMC W4；激活与 KV 质量仿真 |
@@ -39,7 +41,7 @@ QuaRot 官方仓库没有原生支持 Llama-3.2-1B。这里的对照是明确记
 - **模型权重量化**：独立 E8 block W4、8-column block-LDLQ、Hessian 坐标旋转和 QA-LDLQ 适配。
 - **激活与 KV**：七类 Llama Linear 输入 A4；post-RoPE Q/K 匹配旋转；逐 attention-head KV4。
 - **真实权重容器**：NQPK/NQRT/NQMC 固定宽度码流、beta ID、row norm、dither 状态、共享权重别名及完整模型回载。
-- **论文式局部旋转**：112 个 Llama Linear 支持离线保存 `W H`、在线计算 `X H`、旋转坐标 W4/LDLQ 和自包含 NQMC 回载；首窗口 smoke 的内存量化、立即回载与独立回载 PPL 精确一致。
+- **论文式局部旋转**：112 个 Llama Linear 支持离线保存 `W H`、在线计算 `X H`、旋转坐标 W4/LDLQ/A4 和自包含 NQMC 回载；完整 W4/W4A4 PPL 为 10.076729/10.688878。
 - **外部基线**：完成 QuaRot Llama-3.2-1B 兼容移植和 BF16/W4/W4KV4/W4A4/W4A4KV4 完整消融。
 - **实验审计**：保存 revision、token 哈希、配置哈希、校准 provenance、阶段耗时和失败状态。
 
@@ -148,6 +150,7 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [论文式 Hadamard W4 完整 WikiText-2 PPL](results/llama32_1b_paper_hadamard_w4_full.md)
 - [论文式 Hadamard + shared128 LDLQ 四因素消融](results/llama32_1b_paper_hadamard_ldlq_ablation.md)
 - [论文式 Hadamard + shared128 LDLQ W4A4 首窗口 smoke](results/llama32_1b_paper_hadamard_w4a4_smoke.md)
+- [论文式 Hadamard + shared128 LDLQ W4A4 完整 WikiText-2 PPL](results/llama32_1b_paper_hadamard_w4a4_full.md)
 - [固定作者代码与局部 Hadamard A4 语义对齐](docs/upstream_activation_alignment.md)
 - [简历证据边界](docs/resume_evidence.md)
 
