@@ -53,6 +53,8 @@ QuaRot 官方仓库没有原生支持 Llama-3.2-1B。这里的对照是明确记
 
 train64 block-LDLQ NQMC 文件实测为 659,281,364 字节，能够在不加载 Hessian 的情况下重建权重并复现 PPL 10.276133。该路径仍将权重反量化到 BF16 Linear，因此不代表 INT4 推理加速。
 
+模型回载现已改为分块校验和逐记录反量化。对 1,044,557,140 字节共享校准 NQMC 各运行 3 次，主机 RSS 峰值增量均值由 3.289 GiB 降到 1.467 GiB，CUDA 峰值 allocated 由 7.147 GiB 降到 3.133 GiB；NQMC 阶段耗时由 28.14±4.67 秒增至 39.95±3.06 秒。该结果是加载阶段工程证据，不是推理性能结果；详见[流式回载基准](results/llama32_1b_nqmc_load_benchmark.md)。
+
 ## 快速开始
 
 基础算法和 CPU 单元测试不需要下载 Llama 权重：
@@ -68,7 +70,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 108 项主项目测试，覆盖 E8、codec、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径与模型级事务替换、LDLQ、packing、checkpoint、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 113 项主项目测试，覆盖 E8、codec、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径与模型级事务替换、LDLQ、packing、流式checkpoint回载、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
@@ -121,7 +123,7 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         108 项分层单元测试
+tests/unit/         113 项分层单元测试
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁

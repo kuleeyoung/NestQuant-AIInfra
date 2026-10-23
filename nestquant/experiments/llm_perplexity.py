@@ -22,6 +22,7 @@ import torch
 from ..models.quantization import quantize_nestquant_w4_, quantize_rtn_w4_
 from ..evaluation.perplexity import evaluate_perplexity, tokenize_corpus
 from ..core.model_checkpoint import PackedNestQuantModel
+from ..core.model_checkpoint_file import NQMCFileReader
 from ..models.hessian_store import LlamaHessianStore
 from ..models.qa_calibration import ActivationVarianceStore
 
@@ -558,10 +559,13 @@ def _quantize_and_optionally_export(
 
 def _load_nqmc_into_model(path: Path, model, device, model_id: str, model_revision: str,
                           q: int, seed: int, beta_coefficients, beta_count: int) -> dict:
-    blob = path.read_bytes()
-    blob_sha256 = hashlib.sha256(blob).hexdigest()
-    container = PackedNestQuantModel.from_bytes(blob)
-    metadata = container.model_metadata
+    file_hash = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            file_hash.update(block)
+    blob_sha256 = file_hash.hexdigest()
+    reader = NQMCFileReader(path)
+    metadata = reader.model_metadata
     if metadata.get("model_id") != model_id or metadata.get("model_revision") != model_revision:
         raise ValueError("NQMC model ID or revision does not match the evaluation config")
     if metadata.get("method") != "nestquant_w4_quality_simulation":
@@ -576,23 +580,25 @@ def _load_nqmc_into_model(path: Path, model, device, model_id: str, model_revisi
     if metadata.get("q") != q or metadata.get("seed") != seed:
         raise ValueError("NQMC q or dither seed does not match the evaluation config")
     allowed_betas = {value / q for value in beta_coefficients}
-    if any(len(record.betas) != beta_count or any(beta not in allowed_betas for beta in record.betas)
-           for record in container.quantized_tensors.values()):
-        raise ValueError("NQMC selected beta values do not match the evaluation candidate grid")
-    restored = container.state_dict(device=device)
-    load_result = model.load_state_dict(restored, strict=True)
-    if load_result.missing_keys or load_result.unexpected_keys:
-        raise RuntimeError(f"state-dict mismatch; missing={load_result.missing_keys}, "
-                           f"unexpected={load_result.unexpected_keys}")
+    quantized_count = sum(entry.kind == "nestquant" for entry in reader.entries)
+
+    def validate_betas(entry, record):
+        if entry.kind == "nestquant":
+            if (len(record.betas) != beta_count
+                    or any(beta not in allowed_betas for beta in record.betas)):
+                raise ValueError("NQMC selected beta values do not match the evaluation candidate grid")
+
+    reader.load_into_model(model, device=device, record_validator=validate_betas)
     result = {"format": "NQMC v1", "path": str(path.resolve()),
-              "file_bytes": len(blob), "file_sha256": blob_sha256,
-              "tensor_count": len(restored),
-              "unique_quantized_tensors": len(container.quantized_tensors),
+              "file_bytes": reader.file_bytes, "file_sha256": blob_sha256,
+              "tensor_count": reader.tensor_count,
+              "unique_quantized_tensors": quantized_count,
               "encoder": encoder,
               "encoder_metadata": metadata.get("encoder_metadata"),
               "reloaded_before_perplexity": True,
-              "execution": "floating-point dequantized weights loaded into model dtype"}
-    del restored, container, blob
+              "execution": "record-wise floating-point dequantization loaded into model dtype",
+              "host_loading": "seek-based NQMC reader; one tensor record retained at a time"}
+    del reader
     gc.collect()
     return result
 

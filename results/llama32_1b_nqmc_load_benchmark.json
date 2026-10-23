@@ -1,0 +1,31 @@
+{
+  "scope": "Llama-3.2-1B NQMC reload engineering benchmark; no quality evaluation or inference",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "checkpoint_bytes": 1044557140,
+  "device": "RTX 5070 via WSL2 CUDA",
+  "torch_version": "2.14.1+cu130",
+  "runs_per_mode": 3,
+  "legacy": {
+    "nqmc_total_seconds": [33.396976492, 26.547932964, 24.474836833],
+    "nqmc_total_seconds_mean": 28.13991543,
+    "nqmc_total_seconds_sample_stdev": 4.669255846,
+    "rss_peak_increment_bytes_mean": 3531444224,
+    "rss_peak_increment_bytes_sample_stdev": 1901616.249,
+    "cuda_peak_allocated_bytes_mean": 7673784832
+  },
+  "stream": {
+    "nqmc_total_seconds": [38.736479703, 43.43853101, 37.687517944],
+    "nqmc_total_seconds_mean": 39.954176219,
+    "nqmc_total_seconds_sample_stdev": 3.062780832,
+    "rss_peak_increment_bytes_mean": 1575606954.667,
+    "rss_peak_increment_bytes_sample_stdev": 3965935.652,
+    "cuda_peak_allocated_bytes_mean": 3364002304
+  },
+  "relative_change_of_means": {
+    "rss_peak_increment_reduction_percent": 55.383495966,
+    "cuda_peak_allocated_reduction_percent": 56.162410367,
+    "nqmc_total_time_increase_percent": 41.983995364
+  },
+  "claim_boundary": "Three reload runs per mode. Final model weights are floating point. This is not inference latency, throughput, PPL, or low-bit residency evidence."
+}

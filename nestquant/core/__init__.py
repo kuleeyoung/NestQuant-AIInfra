@@ -10,6 +10,7 @@ from .quantizer import (
 from .packing import PackedNestQuantIndices, pack_nestquant_indices
 from .tensor_checkpoint import PackedNestQuantTensor
 from .model_checkpoint import PackedNestQuantModel
+from .model_checkpoint_file import NQMCEntry, NQMCFileReader
 from .ldlq import (
     ActivationCovarianceAccumulator,
     block_unit_lower_ldl,
@@ -27,7 +28,7 @@ __all__ = [
     "select_beta_subset", "QuantizedBlocks", "QuantizedRows", "quantize_e8_blocks",
     "quantize_rows", "quantize_rows_ldlq",
     "PackedNestQuantIndices", "pack_nestquant_indices", "PackedNestQuantTensor",
-    "PackedNestQuantModel",
+    "PackedNestQuantModel", "NQMCEntry", "NQMCFileReader",
     "ActivationCovarianceAccumulator", "regularize_hessian", "unit_lower_ldl",
     "block_unit_lower_ldl", "ldlq_quantize_columns", "ldlq_quantize_blocks",
     "hessian_proxy_loss", "qa_ldlq_adjustment",

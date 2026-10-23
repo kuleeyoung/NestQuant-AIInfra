@@ -1,11 +1,14 @@
 """Tests for model-wide NQMC serialization and tied-weight restoration."""
 
 import unittest
+from pathlib import Path
+import tempfile
 
 import torch
 from torch import nn
 
 from nestquant.core.model_checkpoint import PackedNestQuantModel
+from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.core.quantizer import quantize_rows
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.models.quantization import quantize_nestquant_w4_
@@ -22,6 +25,11 @@ class TinyTiedModel(nn.Module):
 
 
 class TestModelCheckpoint(unittest.TestCase):
+    def _write_checkpoint(self, checkpoint: PackedNestQuantModel, directory: str) -> Path:
+        path = Path(directory) / "model.nqmc"
+        path.write_bytes(checkpoint.to_bytes())
+        return path
+
     def test_adapter_artifact_names_match_state_dict_and_reload(self):
         model = nn.Sequential(nn.Linear(8, 2, bias=False)).to(torch.bfloat16)
         artifacts = {}
@@ -76,6 +84,84 @@ class TestModelCheckpoint(unittest.TestCase):
         blob[-1] ^= 0x01
         with self.assertRaisesRegex(ValueError, "checksum"):
             PackedNestQuantModel.from_bytes(blob)
+
+    def test_file_reader_streams_dense_quantized_and_tied_state(self):
+        source = TinyTiedModel().to(torch.bfloat16)
+        rows = quantize_rows(
+            source.state_dict()["lm_head.weight"], q=14,
+            betas=(0.5, 0.75, 1.0, 1.25),
+        )
+        record = PackedNestQuantTensor.from_quantized_rows("lm_head.weight", rows)
+        checkpoint = PackedNestQuantModel.from_state_dict(
+            source.state_dict(), {"lm_head.weight": record},
+            model_metadata={"model_id": "tiny-test"},
+        )
+        target = TinyTiedModel().to(torch.bfloat16)
+        with tempfile.TemporaryDirectory() as directory:
+            reader = NQMCFileReader(self._write_checkpoint(checkpoint, directory), chunk_bytes=7)
+            self.assertEqual(reader.tensor_count, len(source.state_dict()))
+            self.assertEqual(reader.model_metadata["model_id"], "tiny-test")
+            reader.load_into_model(target, device="cpu")
+
+        expected = checkpoint.state_dict()
+        self.assertEqual(set(target.state_dict()), set(expected))
+        for name, tensor in target.state_dict().items():
+            self.assertTrue(torch.equal(tensor, expected[name]), name)
+        self.assertEqual(target.embed_tokens.weight.data_ptr(), target.lm_head.weight.data_ptr())
+
+    def test_file_reader_casts_floating_checkpoint_to_model_dtype(self):
+        source = TinyTiedModel().to(torch.float32)
+        checkpoint = PackedNestQuantModel.from_state_dict(source.state_dict(), {})
+        target = TinyTiedModel().to(torch.bfloat16)
+        with tempfile.TemporaryDirectory() as directory:
+            reader = NQMCFileReader(self._write_checkpoint(checkpoint, directory))
+            reader.load_into_model(target, device="cpu")
+        self.assertEqual(target.norm.weight.dtype, torch.bfloat16)
+        self.assertTrue(torch.equal(target.norm.weight, source.norm.weight.to(torch.bfloat16)))
+
+    def test_file_reader_rejects_corruption_before_loading(self):
+        source = TinyTiedModel()
+        checkpoint = PackedNestQuantModel.from_state_dict(source.state_dict(), {})
+        target = TinyTiedModel()
+        before = {name: tensor.clone() for name, tensor in target.state_dict().items()}
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write_checkpoint(checkpoint, directory)
+            blob = bytearray(path.read_bytes())
+            blob[-1] ^= 1
+            path.write_bytes(blob)
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                NQMCFileReader(path).load_into_model(target, device="cpu")
+        for name, tensor in target.state_dict().items():
+            self.assertTrue(torch.equal(tensor, before[name]), name)
+
+    def test_file_reader_rejects_state_mismatch_before_loading(self):
+        source = TinyTiedModel()
+        checkpoint = PackedNestQuantModel.from_state_dict(source.state_dict(), {})
+        target = nn.Sequential(nn.Linear(8, 2))
+        before = {name: tensor.clone() for name, tensor in target.state_dict().items()}
+        with tempfile.TemporaryDirectory() as directory:
+            reader = NQMCFileReader(self._write_checkpoint(checkpoint, directory))
+            with self.assertRaisesRegex(ValueError, "state-dict mismatch"):
+                reader.load_into_model(target, device="cpu")
+        for name, tensor in target.state_dict().items():
+            self.assertTrue(torch.equal(tensor, before[name]), name)
+
+    def test_file_reader_runs_custom_validation_before_loading(self):
+        source = TinyTiedModel()
+        checkpoint = PackedNestQuantModel.from_state_dict(source.state_dict(), {})
+        target = TinyTiedModel()
+        before = {name: tensor.clone() for name, tensor in target.state_dict().items()}
+
+        def reject_norm(entry, _record):
+            if entry.name == "norm.weight":
+                raise ValueError("policy rejected record")
+
+        with tempfile.TemporaryDirectory() as directory:
+            reader = NQMCFileReader(self._write_checkpoint(checkpoint, directory))
+            with self.assertRaisesRegex(ValueError, "policy rejected"):
+                reader.load_into_model(target, device="cpu", record_validator=reject_norm)
+        for name, tensor in target.state_dict().items():
+            self.assertTrue(torch.equal(tensor, before[name]), name)
 
     def test_block_ldlq_encoder_metadata_survives_model_round_trip(self):
         model = nn.Sequential(nn.Linear(16, 3, bias=False))
