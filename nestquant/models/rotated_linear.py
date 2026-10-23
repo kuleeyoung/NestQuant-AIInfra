@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Collection
+
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 from ..core.rotation import hadamard
+
+
+@dataclass(frozen=True)
+class HadamardConversionReport:
+    converted: tuple[str, ...]
+    skipped_tied: tuple[str, ...]
+    skipped_non_power_of_two: tuple[str, ...]
 
 
 class HadamardRotatedLinear(nn.Module):
@@ -23,6 +33,8 @@ class HadamardRotatedLinear(nn.Module):
         self,
         rotated_weight: torch.Tensor,
         bias: torch.Tensor | None = None,
+        *,
+        output_dtype: torch.dtype | None = None,
     ) -> None:
         super().__init__()
         if not isinstance(rotated_weight, torch.Tensor) or not rotated_weight.is_floating_point():
@@ -39,6 +51,7 @@ class HadamardRotatedLinear(nn.Module):
                 raise ValueError("bias must match rotated_weight device and dtype")
         self.in_features = in_features
         self.out_features = rotated_weight.shape[0]
+        self.output_dtype = rotated_weight.dtype if output_dtype is None else output_dtype
         self.weight = nn.Parameter(rotated_weight.detach().clone())
         self.bias = None if bias is None else nn.Parameter(bias.detach().clone())
 
@@ -49,9 +62,15 @@ class HadamardRotatedLinear(nn.Module):
             raise TypeError("linear must be torch.nn.Linear")
         if linear.in_features & (linear.in_features - 1):
             raise ValueError("linear.in_features must be a power of two")
-        rotated_weight = hadamard(linear.weight.detach())
-        bias = None if linear.bias is None else linear.bias.detach()
-        result = cls(rotated_weight, bias)
+        output_dtype = linear.weight.dtype
+        compute_dtype = (
+            torch.float32
+            if output_dtype in (torch.float16, torch.bfloat16)
+            else output_dtype
+        )
+        rotated_weight = hadamard(linear.weight.detach().to(compute_dtype))
+        bias = None if linear.bias is None else linear.bias.detach().to(compute_dtype)
+        result = cls(rotated_weight, bias, output_dtype=output_dtype)
         result.train(linear.training)
         return result
 
@@ -64,4 +83,60 @@ class HadamardRotatedLinear(nn.Module):
             raise ValueError(
                 f"input feature dimension {inputs.shape[-1]} does not match {self.in_features}"
             )
-        return F.linear(hadamard(inputs), self.weight, self.bias)
+        outputs = F.linear(hadamard(inputs.to(self.weight.dtype)), self.weight, self.bias)
+        return outputs.to(self.output_dtype)
+
+
+def convert_linears_to_hadamard_coordinates_(
+    model: nn.Module,
+    *,
+    include_names: Collection[str] | None = None,
+    strict_power_of_two: bool = True,
+) -> HadamardConversionReport:
+    """Replace selected Linear modules by exact local Hadamard coordinates.
+
+    A Linear sharing storage with the input embedding is skipped so conversion
+    does not silently break tied embedding/``lm_head`` semantics. The function
+    mutates ``model`` only after every requested module name and feature shape
+    has been validated.
+    """
+    if not isinstance(model, nn.Module):
+        raise TypeError("model must be torch.nn.Module")
+    requested = None if include_names is None else frozenset(include_names)
+    modules = dict(model.named_modules())
+    linear_names = {
+        name for name, module in modules.items() if name and isinstance(module, nn.Linear)
+    }
+    if requested is not None:
+        unknown = sorted(requested - linear_names)
+        if unknown:
+            raise ValueError(f"unknown Linear module names: {unknown}")
+
+    tied_weight = None
+    get_embeddings = getattr(model, "get_input_embeddings", None)
+    if callable(get_embeddings):
+        embedding = get_embeddings()
+        tied_weight = None if embedding is None else getattr(embedding, "weight", None)
+
+    selected = sorted(linear_names if requested is None else requested)
+    tied, unsupported, convertible = [], [], []
+    for name in selected:
+        module = modules[name]
+        if tied_weight is not None and module.weight.data_ptr() == tied_weight.data_ptr():
+            tied.append(name)
+        elif module.in_features & (module.in_features - 1):
+            unsupported.append(name)
+        else:
+            convertible.append(name)
+    if strict_power_of_two and unsupported:
+        raise ValueError(f"non-power-of-two Linear input dimensions: {unsupported}")
+
+    for name in convertible:
+        parent_name, _, child_name = name.rpartition(".")
+        parent = model if not parent_name else modules[parent_name]
+        setattr(parent, child_name, HadamardRotatedLinear.from_linear(modules[name]))
+    return HadamardConversionReport(
+        converted=tuple(convertible),
+        skipped_tied=tuple(tied),
+        skipped_non_power_of_two=tuple(unsupported),
+    )

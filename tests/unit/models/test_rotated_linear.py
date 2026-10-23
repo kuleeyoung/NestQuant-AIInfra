@@ -6,7 +6,10 @@ import torch
 from torch import nn
 
 from nestquant.core.rotation import hadamard
-from nestquant.models.rotated_linear import HadamardRotatedLinear
+from nestquant.models.rotated_linear import (
+    HadamardRotatedLinear,
+    convert_linears_to_hadamard_coordinates_,
+)
 
 
 class TestHadamardRotatedLinear(unittest.TestCase):
@@ -25,6 +28,14 @@ class TestHadamardRotatedLinear(unittest.TestCase):
             rotated.reconstructed_weight(), linear.weight, atol=1e-12, rtol=1e-12
         )
         self.assertEqual(rotated.training, linear.training)
+
+    def test_low_precision_source_uses_float32_reference_compute(self):
+        linear = nn.Linear(8, 3, bias=False, dtype=torch.bfloat16)
+        rotated = HadamardRotatedLinear.from_linear(linear)
+        self.assertEqual(rotated.weight.dtype, torch.float32)
+        self.assertEqual(rotated.output_dtype, torch.bfloat16)
+        output = rotated(torch.randn(2, 8, dtype=torch.bfloat16))
+        self.assertEqual(output.dtype, torch.bfloat16)
 
     def test_preserves_input_and_weight_gradients(self):
         generator = torch.Generator().manual_seed(61)
@@ -50,6 +61,50 @@ class TestHadamardRotatedLinear(unittest.TestCase):
         rotated = HadamardRotatedLinear.from_linear(nn.Linear(8, 3))
         with self.assertRaisesRegex(ValueError, "does not match"):
             rotated(torch.ones(2, 7))
+
+    def test_model_converter_preserves_outputs_and_reports_selection(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.block = nn.Sequential(nn.Linear(8, 8), nn.GELU(), nn.Linear(8, 4))
+                self.other = nn.Linear(8, 3)
+
+        model = Model().to(torch.float64)
+        inputs = torch.randn(3, 8, dtype=torch.float64)
+        expected = model.block(inputs)
+        report = convert_linears_to_hadamard_coordinates_(
+            model, include_names={"block.0", "block.2"}
+        )
+        self.assertEqual(report.converted, ("block.0", "block.2"))
+        self.assertIsInstance(model.block[0], HadamardRotatedLinear)
+        self.assertIsInstance(model.other, nn.Linear)
+        torch.testing.assert_close(model.block(inputs), expected, atol=1e-12, rtol=1e-12)
+
+    def test_model_converter_skips_tied_lm_head(self):
+        class TiedModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embed = nn.Embedding(16, 8)
+                self.proj = nn.Linear(8, 8, bias=False)
+                self.lm_head = nn.Linear(8, 16, bias=False)
+                self.lm_head.weight = self.embed.weight
+
+            def get_input_embeddings(self):
+                return self.embed
+
+        model = TiedModel()
+        report = convert_linears_to_hadamard_coordinates_(model)
+        self.assertEqual(report.converted, ("proj",))
+        self.assertEqual(report.skipped_tied, ("lm_head",))
+        self.assertIs(model.lm_head.weight, model.embed.weight)
+
+    def test_model_converter_validates_before_mutation(self):
+        model = nn.Sequential(nn.Linear(8, 4), nn.Linear(12, 3))
+        with self.assertRaisesRegex(ValueError, "non-power-of-two"):
+            convert_linears_to_hadamard_coordinates_(model)
+        self.assertTrue(all(isinstance(module, nn.Linear) for module in model))
+        with self.assertRaisesRegex(ValueError, "unknown Linear"):
+            convert_linears_to_hadamard_coordinates_(model, include_names={"missing"})
 
 
 if __name__ == "__main__":

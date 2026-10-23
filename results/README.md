@@ -6,6 +6,8 @@
 
 当前推荐引用结果、历史结果和暂缓结果的分层见 [`docs/current_results.md`](../docs/current_results.md)。新报告和简历应优先引用 shared128、BF16 `lm_head` 的正式矩阵；首轮、train64 和普通 W4 NQMC 文档作为开发过程证据保留，不用较旧数字覆盖当前主结果。
 
+论文 §4.3 的局部 `WH` 权重与在线 `XH` 输入路径已完成短 token 数值 smoke；1/7/112 个 Linear 的相对 L2 logits 误差为 0.9554%/1.0751%/1.0964%，本次 top-1 均一致。该结果只用于旋转语义排错，见 [Hadamard 坐标 smoke](llama32_1b_hadamard_coordinate_smoke.md)。
+
 ## WikiText-2 PPL 汇总
 
 模型评测脚本每次运行都会在 `results/raw/` 生成独立 JSON manifest（包括失败和 smoke run）。完成若干次评测后，可用以下命令生成便于查看的 CSV：

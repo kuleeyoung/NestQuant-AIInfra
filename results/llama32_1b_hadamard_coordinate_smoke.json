@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "smoke_completed",
+  "model": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "device": "cuda",
+  "model_dtype": "bfloat16",
+  "rotation_reference_compute_dtype": "float32",
+  "token_count": 16,
+  "token_seed": 58,
+  "runs": [
+    {
+      "converted_linears": 1,
+      "max_abs_logit_error": 0.28125,
+      "mean_abs_logit_error": 0.021345848217606544,
+      "relative_l2_logit_error": 0.009554111398756504,
+      "top1_token_agreement": 1.0
+    },
+    {
+      "converted_linears": 7,
+      "max_abs_logit_error": 0.28125,
+      "mean_abs_logit_error": 0.03245165944099426,
+      "relative_l2_logit_error": 0.010751413181424141,
+      "top1_token_agreement": 1.0
+    },
+    {
+      "converted_linears": 112,
+      "max_abs_logit_error": 0.3125,
+      "mean_abs_logit_error": 0.03283886983990669,
+      "relative_l2_logit_error": 0.010963940061628819,
+      "top1_token_agreement": 1.0
+    }
+  ],
+  "raw_manifests": [
+    "results/raw/llama32_1b_hadamard_1linears_smoke.json",
+    "results/raw/llama32_1b_hadamard_7linears_smoke.json",
+    "results/raw/llama32_1b_hadamard_112linears_smoke.json"
+  ],
+  "evidence_boundary": "Fixed 16-token numerical-equivalence smoke without quantization. It is not a PPL, benchmark-quality, storage, or speed result."
+}
