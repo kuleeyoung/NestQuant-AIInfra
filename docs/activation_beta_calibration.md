@@ -44,6 +44,14 @@ python scripts/calibrate_llama_activation_betas.py \
 --activation-beta-profile global
 ```
 
+在正式 test 前，必须先用未参与校准的 train 窗口选 profile：
+
+```bash
+python scripts/evaluate_activation_beta_profiles.py --offline
+```
+
+默认协议固定用 manifest 的窗口 0--7 校准、窗口 8--15 验证，并比较 `upstream_default`、`global`、`projection_type`、`module`。脚本会拒绝窗口重叠，并保存 manifest、checkpoint、beta 配置和验证 token 的 SHA-256，以及各方案的 PPL、overload 和相对平方误差。该结果只用于选择 profile，不是最终测试集指标，也不代表低比特激活 kernel 性能。
+
 `global` 可替换为 `projection_type` 或 `module`。评测 manifest 保存配置绝对路径、SHA-256、profile 和校准 token 哈希。
 
 ## 结论边界
