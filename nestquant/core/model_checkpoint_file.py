@@ -175,11 +175,26 @@ class NQMCFileReader:
         return value if output_dtype is None else value.to(output_dtype)
 
     def read_entry(self, entry: NQMCEntry) -> torch.Tensor | PackedNestQuantTensor:
+        """Read and parse one manifest entry."""
+        return self.parse_entry_blob(entry, self.read_entry_blob(entry))
+
+    def read_entry_blob(self, entry: NQMCEntry) -> bytes:
+        """Read the exact serialized bytes for one validated manifest entry."""
         with self.path.open("rb") as stream:
             stream.seek(self.payload_start + entry.offset)
             blob = stream.read(entry.length)
         if len(blob) != entry.length:
             raise ValueError(f"truncated tensor record: {entry.name}")
+        return blob
+
+    def parse_entry_blob(
+        self, entry: NQMCEntry, blob: bytes
+    ) -> torch.Tensor | PackedNestQuantTensor:
+        """Parse and cross-check bytes previously read for ``entry``."""
+        if not isinstance(blob, bytes):
+            raise TypeError("entry blob must be bytes")
+        if len(blob) != entry.length:
+            raise ValueError(f"tensor record length mismatch: {entry.name}")
         if entry.kind == "dense":
             return _tensor_from_bytes(blob, entry.shape, entry.dtype)
         record = PackedNestQuantTensor.from_bytes(blob)

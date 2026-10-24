@@ -1,0 +1,48 @@
+{
+  "experiment": "synchronized lazy NQMC model phase profile",
+  "checkpoint": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3.nqmc",
+  "checkpoint_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "input_shape": [1, 8],
+  "device": "NVIDIA GeForce RTX 5070",
+  "torch_version": "2.14.1+cu130",
+  "rows_per_chunk": 128,
+  "cache_capacity_bytes": 268435456,
+  "warmup_seconds_excluded": 23.916125738,
+  "profiled_forward_seconds": 22.071192426,
+  "phases": {
+    "record_read": {"count": 112, "seconds": 1.554389136, "percent": 7.042615},
+    "record_parse": {"count": 112, "seconds": 0.120928865, "percent": 0.547904},
+    "unpack_dequant": {"count": 112, "seconds": 20.223656652, "percent": 91.629198},
+    "input_transform": {"count": 112, "seconds": 0.061251495, "percent": 0.277518},
+    "gemm_output_cast": {"count": 112, "seconds": 0.016316171, "percent": 0.073925},
+    "unaccounted_model": {"seconds": 0.094650107, "percent": 0.428840}
+  },
+  "unpack_dequant_by_projection_seconds": {
+    "q_proj": 1.376186821,
+    "k_proj": 0.266131553,
+    "v_proj": 0.271604264,
+    "o_proj": 1.265215684,
+    "gate_proj": 6.052218645,
+    "up_proj": 6.070600682,
+    "down_proj": 4.921699003
+  },
+  "derived": {
+    "mlp_projection_share_of_unpack_dequant_percent": 84.280101,
+    "record_read_plus_parse_percent_of_forward": 7.590519,
+    "unpack_dequant_share_of_forward_percent": 91.629198
+  },
+  "cache": {
+    "hits": 0,
+    "misses": 112,
+    "decodes": 112,
+    "evictions": 98,
+    "peak_resident_bytes": 264241152
+  },
+  "cuda_peak_allocated_bytes": 895100928,
+  "output_checksum": 3386097.5,
+  "conclusion": "The dominant bottleneck is Python/PyTorch unpack and BF16 dequantization, especially the three large MLP projections. Perfectly hiding record read and parse can address at most about 7.6 percent of this measured forward, so compiled or fused decode has priority over I/O-only prefetch.",
+  "methodology": "GPU phases synchronize before and after each operation after a full-path warmup. The synchronization intentionally perturbs asynchronous execution but makes diagnostic phase wall times additive.",
+  "claim_boundary": "This profiles BF16 materialization and ordinary PyTorch GEMM, not a packed low-bit CUDA kernel or production serving workload."
+}

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from collections.abc import Callable
 from threading import RLock
+import time
 from typing import Literal
 
 import torch
@@ -13,10 +14,12 @@ from torch.nn import functional as F
 
 from ..core.model_checkpoint_file import NQMCFileReader
 from ..core.rotation import hadamard
+from ..core.tensor_checkpoint import PackedNestQuantTensor
 
 
 CachePolicy = Literal["none", "persistent", "lru"]
 CacheKey = tuple[str, str, torch.dtype]
+RuntimeProfileCallback = Callable[[dict[str, object]], None]
 
 
 class LazyNQMCWeightCache:
@@ -142,6 +145,8 @@ class LazyNQMCLinear(nn.Module):
         rows_per_chunk: int | None = 128,
         cache_policy: CachePolicy = "none",
         weight_cache: LazyNQMCWeightCache | None = None,
+        profile_callback: RuntimeProfileCallback | None = None,
+        synchronize_profile: bool = False,
     ) -> None:
         super().__init__()
         if not isinstance(reader, NQMCFileReader):
@@ -152,6 +157,10 @@ class LazyNQMCLinear(nn.Module):
             raise ValueError("lru cache_policy requires a LazyNQMCWeightCache")
         if cache_policy != "lru" and weight_cache is not None:
             raise ValueError("weight_cache is only valid with lru cache_policy")
+        if profile_callback is not None and not callable(profile_callback):
+            raise TypeError("profile_callback must be callable")
+        if synchronize_profile and profile_callback is None:
+            raise ValueError("synchronize_profile requires a profile_callback")
         if compute_dtype not in {torch.float16, torch.bfloat16, torch.float32, torch.float64}:
             raise ValueError("compute_dtype must be a floating-point dtype")
         if output_dtype is not None and output_dtype not in {
@@ -190,6 +199,8 @@ class LazyNQMCLinear(nn.Module):
         self.rows_per_chunk = rows_per_chunk
         self.cache_policy: CachePolicy = cache_policy
         self.weight_cache = weight_cache
+        self.profile_callback = profile_callback
+        self.synchronize_profile = synchronize_profile
         self._last_device = torch.device("cpu")
         self.register_buffer(
             "bias", None if bias is None else bias.detach().clone().to(compute_dtype)
@@ -237,11 +248,30 @@ class LazyNQMCLinear(nn.Module):
         self._last_device = device
 
         def decode() -> torch.Tensor:
-            return self.reader.decode_tensor(
-                self.weight_name,
-                device=device,
-                output_dtype=self.compute_dtype,
-                rows_per_chunk=self.rows_per_chunk,
+            entry = self.reader.get_entry(self.weight_name)
+            blob = self._profile_phase(
+                "record_read", device, lambda: self.reader.read_entry_blob(entry),
+                synchronize=False,
+            )
+            record = self._profile_phase(
+                "record_parse", device,
+                lambda: self.reader.parse_entry_blob(entry, blob),
+                synchronize=False,
+            )
+            if not isinstance(record, PackedNestQuantTensor):
+                raise TypeError("LazyNQMCLinear weight record must remain quantized")
+
+            def dequantize() -> torch.Tensor:
+                if self.rows_per_chunk is None:
+                    return record.dequantize(device=device).to(self.compute_dtype)
+                return record.dequantize_chunked(
+                    device=device,
+                    output_dtype=self.compute_dtype,
+                    rows_per_chunk=self.rows_per_chunk,
+                )
+
+            return self._profile_phase(
+                "unpack_dequant", device, dequantize, synchronize=True
             )
 
         if self.cache_policy == "lru":
@@ -262,6 +292,31 @@ class LazyNQMCLinear(nn.Module):
             self._cached_weight = decoded
         return decoded
 
+    def _profile_phase(
+        self,
+        phase: str,
+        device: torch.device,
+        operation: Callable[[], object],
+        *,
+        synchronize: bool,
+    ):
+        callback = self.profile_callback
+        if callback is None:
+            return operation()
+        if self.synchronize_profile and synchronize and device.type == "cuda":
+            torch.cuda.synchronize(device)
+        started = time.perf_counter()
+        result = operation()
+        if self.synchronize_profile and synchronize and device.type == "cuda":
+            torch.cuda.synchronize(device)
+        callback({
+            "weight_name": self.weight_name,
+            "phase": phase,
+            "seconds": time.perf_counter() - started,
+            "device": str(device),
+        })
+        return result
+
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         if not isinstance(inputs, torch.Tensor) or not inputs.is_floating_point():
             raise TypeError("inputs must be a floating-point tensor")
@@ -271,10 +326,19 @@ class LazyNQMCLinear(nn.Module):
                 f"input feature dimension {actual} does not match {self.in_features}"
             )
         original_dtype = inputs.dtype
-        compute_inputs = inputs.to(self.compute_dtype)
-        if self.input_hadamard:
-            compute_inputs = hadamard(compute_inputs)
+        def transform_inputs() -> torch.Tensor:
+            transformed = inputs.to(self.compute_dtype)
+            return hadamard(transformed) if self.input_hadamard else transformed
+
+        compute_inputs = self._profile_phase(
+            "input_transform", inputs.device, transform_inputs, synchronize=True
+        )
         weight = self._weight(inputs.device)
         bias = None if self.bias is None else self.bias.to(inputs.device)
-        outputs = F.linear(compute_inputs, weight, bias)
-        return outputs.to(original_dtype if self.output_dtype is None else self.output_dtype)
+        target_dtype = original_dtype if self.output_dtype is None else self.output_dtype
+        return self._profile_phase(
+            "gemm_output_cast",
+            inputs.device,
+            lambda: F.linear(compute_inputs, weight, bias).to(target_dtype),
+            synchronize=True,
+        )

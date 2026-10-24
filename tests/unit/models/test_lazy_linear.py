@@ -171,6 +171,27 @@ class TestLazyNQMCLinear(unittest.TestCase):
         self.assertEqual(cache.snapshot()["resident_bytes"], 0)
         self.assertEqual(cache.snapshot()["misses"], 0)
 
+    def test_profile_callback_splits_read_parse_decode_transform_and_gemm(self):
+        events = []
+        layer = LazyNQMCLinear(
+            self.reader, "proj.weight", input_hadamard=True,
+            compute_dtype=torch.bfloat16, rows_per_chunk=2,
+            profile_callback=events.append, synchronize_profile=True,
+        )
+        layer(torch.randn(2, 8, dtype=torch.bfloat16))
+        self.assertEqual([event["phase"] for event in events], [
+            "input_transform", "record_read", "record_parse",
+            "unpack_dequant", "gemm_output_cast",
+        ])
+        self.assertTrue(all(event["seconds"] >= 0 for event in events))
+        self.assertTrue(all(event["weight_name"] == "proj.weight" for event in events))
+
+    def test_synchronized_profile_requires_callback(self):
+        with self.assertRaisesRegex(ValueError, "requires"):
+            LazyNQMCLinear(
+                self.reader, "proj.weight", synchronize_profile=True
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

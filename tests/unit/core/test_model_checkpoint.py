@@ -151,6 +151,27 @@ class TestModelCheckpoint(unittest.TestCase):
         self.assertTrue(torch.equal(restored_chunked, record.dequantize().to(torch.bfloat16)))
         self.assertTrue(torch.equal(dense, source.norm.weight))
 
+    def test_file_reader_can_separate_record_read_from_parse(self):
+        source = TinyTiedModel().to(torch.bfloat16)
+        rows = quantize_rows(
+            source.state_dict()["lm_head.weight"], q=14,
+            betas=(0.5, 0.75, 1.0, 1.25),
+        )
+        record = PackedNestQuantTensor.from_quantized_rows("lm_head.weight", rows)
+        checkpoint = PackedNestQuantModel.from_state_dict(
+            source.state_dict(), {"lm_head.weight": record}
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            reader = NQMCFileReader(self._write_checkpoint(checkpoint, directory))
+            entry = reader.get_entry("lm_head.weight")
+            blob = reader.read_entry_blob(entry)
+            parsed = reader.parse_entry_blob(entry, blob)
+            self.assertEqual(len(blob), entry.length)
+            self.assertIsInstance(parsed, PackedNestQuantTensor)
+            self.assertTrue(torch.equal(parsed.dequantize(), record.dequantize()))
+            with self.assertRaisesRegex(ValueError, "length mismatch"):
+                reader.parse_entry_blob(entry, blob[:-1])
+
     def test_streaming_writer_matches_in_memory_format(self):
         model = TinyTiedModel().to(torch.bfloat16)
         checkpoint = PackedNestQuantModel.from_state_dict(

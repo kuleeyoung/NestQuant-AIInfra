@@ -8,7 +8,11 @@ import torch
 from torch import nn
 
 from ..core.model_checkpoint_file import NQMCFileReader
-from .lazy_linear import LazyNQMCLinear, LazyNQMCWeightCache
+from .lazy_linear import (
+    LazyNQMCLinear,
+    LazyNQMCWeightCache,
+    RuntimeProfileCallback,
+)
 from .rotated_linear import PAPER_HADAMARD_FORMAT, HadamardRotatedLinear
 
 
@@ -31,6 +35,8 @@ def convert_model_to_lazy_nqmc_(
     compute_dtype: torch.dtype = torch.bfloat16,
     output_dtype: torch.dtype | None = None,
     rows_per_chunk: int | None = 128,
+    profile_callback: RuntimeProfileCallback | None = None,
+    synchronize_profile: bool = False,
 ) -> LazyNQMCConversionReport:
     """Load dense state and transactionally replace packed Linear weights.
 
@@ -56,6 +62,10 @@ def convert_model_to_lazy_nqmc_(
         or rows_per_chunk < 1
     ):
         raise ValueError("rows_per_chunk must be a positive integer or None")
+    if profile_callback is not None and not callable(profile_callback):
+        raise TypeError("profile_callback must be callable")
+    if synchronize_profile and profile_callback is None:
+        raise ValueError("synchronize_profile requires a profile_callback")
 
     state = model.state_dict()
     checkpoint_names = {entry.name for entry in reader.entries} | set(reader.aliases)
@@ -127,6 +137,8 @@ def convert_model_to_lazy_nqmc_(
             rows_per_chunk=rows_per_chunk,
             cache_policy="lru",
             weight_cache=weight_cache,
+            profile_callback=profile_callback,
+            synchronize_profile=synchronize_profile,
         )
         lazy.train(module.training)
         parent_name, _, child_name = module_name.rpartition(".")
