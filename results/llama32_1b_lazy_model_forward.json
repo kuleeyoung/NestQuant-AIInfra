@@ -1,0 +1,52 @@
+{
+  "experiment": "automatic full-model lazy NQMC Linear replacement",
+  "checkpoint": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3.nqmc",
+  "checkpoint_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "input_shape": [1, 8],
+  "device": "NVIDIA GeForce RTX 5070",
+  "torch_version": "2.14.1+cu130",
+  "rows_per_chunk": 128,
+  "baseline": {
+    "load_and_full_dequantize_seconds": 31.676338109,
+    "warmup_forward_seconds_excluded": 0.804922999,
+    "measured_forward_seconds": 0.05260806,
+    "cuda_peak_allocated_bytes": 2508363264,
+    "cuda_allocated_after_forward_bytes": 2508330496
+  },
+  "lazy": {
+    "load_convert_and_move_seconds": 2.113493363,
+    "replaced_linear_count": 112,
+    "dense_tensor_count": 34,
+    "alias_count": 1,
+    "input_hadamard_count": 112,
+    "cache_capacity_bytes": 268435456,
+    "forward_seconds": [23.698525999, 24.230230462],
+    "forward_mean_seconds": 23.964378231,
+    "cache_hits_per_forward": [0, 0],
+    "cache_misses_per_forward": [112, 112],
+    "cache_decodes_per_forward": [112, 112],
+    "cache_evictions_per_forward": [98, 112],
+    "final_resident_bytes": 243269632,
+    "peak_resident_bytes": 264241152,
+    "resident_tensor_count": 14,
+    "cuda_peak_allocated_bytes": 895100928,
+    "cuda_allocated_after_forward_bytes": 803345920
+  },
+  "derived": {
+    "load_speedup_from_skipping_full_weight_materialization": 14.9877,
+    "cuda_peak_allocated_reduction_percent": 64.3153,
+    "cuda_allocated_after_forward_reduction_percent": 67.9729,
+    "lazy_forward_slowdown_vs_warm_baseline": 455.527
+  },
+  "correctness": {
+    "logits_bitwise_equal": true,
+    "max_abs_error": 0.0,
+    "mean_abs_error": 0.0,
+    "baseline_checksum": 3386097.5,
+    "lazy_checksum": 3386097.5
+  },
+  "conclusion": "Automatic lazy replacement is numerically exact and materially reduces allocated CUDA memory, but a 256 MiB generic LRU has zero hits under dense Transformer sequential scans and makes forward roughly 456 times slower because all 112 packed weights are decoded every pass.",
+  "claim_boundary": "Cache misses materialize BF16 weights and all GEMMs remain ordinary PyTorch BF16 operations; this is not packed low-bit execution or a production serving benchmark."
+}
