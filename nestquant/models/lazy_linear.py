@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from collections.abc import Callable
+from threading import RLock
 from typing import Literal
 
 import torch
@@ -12,7 +15,109 @@ from ..core.model_checkpoint_file import NQMCFileReader
 from ..core.rotation import hadamard
 
 
-CachePolicy = Literal["none", "persistent"]
+CachePolicy = Literal["none", "persistent", "lru"]
+CacheKey = tuple[str, str, torch.dtype]
+
+
+class LazyNQMCWeightCache:
+    """Capacity-bounded, process-local LRU cache for decoded weight tensors."""
+
+    def __init__(self, capacity_bytes: int) -> None:
+        if isinstance(capacity_bytes, bool) or not isinstance(capacity_bytes, int):
+            raise TypeError("capacity_bytes must be an integer")
+        if capacity_bytes < 0:
+            raise ValueError("capacity_bytes must be nonnegative")
+        self.capacity_bytes = capacity_bytes
+        self._values: OrderedDict[CacheKey, torch.Tensor] = OrderedDict()
+        self._resident_bytes = 0
+        self._peak_resident_bytes = 0
+        self._hits = 0
+        self._misses = 0
+        self._decodes = 0
+        self._evictions = 0
+        self._bypasses = 0
+        self._lock = RLock()
+
+    @staticmethod
+    def _tensor_bytes(tensor: torch.Tensor) -> int:
+        return tensor.numel() * tensor.element_size()
+
+    def get_or_load(
+        self,
+        key: CacheKey,
+        expected_bytes: int,
+        loader: Callable[[], torch.Tensor],
+    ) -> torch.Tensor:
+        """Return a cached tensor or load it after making room under the budget."""
+        if expected_bytes < 0:
+            raise ValueError("expected_bytes must be nonnegative")
+        with self._lock:
+            cached = self._values.get(key)
+            if cached is not None:
+                self._values.move_to_end(key)
+                self._hits += 1
+                return cached
+            self._misses += 1
+            if expected_bytes > self.capacity_bytes:
+                self._bypasses += 1
+                self._decodes += 1
+                return loader()
+            while self._values and self._resident_bytes + expected_bytes > self.capacity_bytes:
+                _, evicted = self._values.popitem(last=False)
+                self._resident_bytes -= self._tensor_bytes(evicted)
+                self._evictions += 1
+            value = loader()
+            self._decodes += 1
+            actual_bytes = self._tensor_bytes(value)
+            if actual_bytes != expected_bytes:
+                raise ValueError("decoded tensor size disagrees with the cache estimate")
+            self._values[key] = value
+            self._resident_bytes += actual_bytes
+            self._peak_resident_bytes = max(
+                self._peak_resident_bytes, self._resident_bytes
+            )
+            return value
+
+    def contains(self, key: CacheKey) -> bool:
+        with self._lock:
+            return key in self._values
+
+    def bytes_for(self, key: CacheKey) -> int:
+        with self._lock:
+            value = self._values.get(key)
+            return 0 if value is None else self._tensor_bytes(value)
+
+    def remove(self, key: CacheKey) -> None:
+        with self._lock:
+            value = self._values.pop(key, None)
+            if value is not None:
+                self._resident_bytes -= self._tensor_bytes(value)
+
+    def clear(self, *, reset_statistics: bool = False) -> None:
+        with self._lock:
+            self._values.clear()
+            self._resident_bytes = 0
+            if reset_statistics:
+                self._peak_resident_bytes = 0
+                self._hits = self._misses = self._decodes = 0
+                self._evictions = self._bypasses = 0
+
+    def snapshot(self) -> dict[str, int | float]:
+        """Return immutable accounting suitable for logs and benchmark reports."""
+        with self._lock:
+            accesses = self._hits + self._misses
+            return {
+                "capacity_bytes": self.capacity_bytes,
+                "resident_bytes": self._resident_bytes,
+                "peak_resident_bytes": self._peak_resident_bytes,
+                "resident_tensor_count": len(self._values),
+                "hits": self._hits,
+                "misses": self._misses,
+                "decodes": self._decodes,
+                "evictions": self._evictions,
+                "bypasses": self._bypasses,
+                "hit_rate": self._hits / accesses if accesses else 0.0,
+            }
 
 
 class LazyNQMCLinear(nn.Module):
@@ -36,12 +141,17 @@ class LazyNQMCLinear(nn.Module):
         output_dtype: torch.dtype | None = None,
         rows_per_chunk: int | None = 128,
         cache_policy: CachePolicy = "none",
+        weight_cache: LazyNQMCWeightCache | None = None,
     ) -> None:
         super().__init__()
         if not isinstance(reader, NQMCFileReader):
             raise TypeError("reader must be an NQMCFileReader")
-        if cache_policy not in {"none", "persistent"}:
-            raise ValueError("cache_policy must be 'none' or 'persistent'")
+        if cache_policy not in {"none", "persistent", "lru"}:
+            raise ValueError("cache_policy must be 'none', 'persistent', or 'lru'")
+        if cache_policy == "lru" and not isinstance(weight_cache, LazyNQMCWeightCache):
+            raise ValueError("lru cache_policy requires a LazyNQMCWeightCache")
+        if cache_policy != "lru" and weight_cache is not None:
+            raise ValueError("weight_cache is only valid with lru cache_policy")
         if compute_dtype not in {torch.float16, torch.bfloat16, torch.float32, torch.float64}:
             raise ValueError("compute_dtype must be a floating-point dtype")
         if output_dtype is not None and output_dtype not in {
@@ -71,6 +181,7 @@ class LazyNQMCLinear(nn.Module):
 
         self.reader = reader
         self.weight_name = weight_name
+        self.canonical_weight_name = entry.name
         self.in_features = in_features
         self.out_features = out_features
         self.input_hadamard = input_hadamard
@@ -78,6 +189,8 @@ class LazyNQMCLinear(nn.Module):
         self.output_dtype = output_dtype
         self.rows_per_chunk = rows_per_chunk
         self.cache_policy: CachePolicy = cache_policy
+        self.weight_cache = weight_cache
+        self._last_device = torch.device("cpu")
         self.register_buffer(
             "bias", None if bias is None else bias.detach().clone().to(compute_dtype)
         )
@@ -86,32 +199,65 @@ class LazyNQMCLinear(nn.Module):
     @property
     def cached(self) -> bool:
         """Whether a decoded weight is currently retained."""
+        if self.cache_policy == "lru":
+            assert self.weight_cache is not None
+            return self.weight_cache.contains(self._cache_key(self._runtime_device()))
         return self._cached_weight is not None
 
     @property
     def cached_weight_bytes(self) -> int:
         """Device bytes retained by the persistent cache."""
+        if self.cache_policy == "lru":
+            assert self.weight_cache is not None
+            return self.weight_cache.bytes_for(
+                self._cache_key(self._runtime_device())
+            )
         if self._cached_weight is None:
             return 0
         return self._cached_weight.numel() * self._cached_weight.element_size()
 
     def clear_cache(self) -> None:
         """Release a persistent decoded weight."""
+        if self.cache_policy == "lru":
+            assert self.weight_cache is not None
+            self.weight_cache.remove(self._cache_key(self._runtime_device()))
         self._cached_weight = None
 
+    def _runtime_device(self) -> torch.device:
+        if self._cached_weight is not None:
+            return self._cached_weight.device
+        if self.bias is not None:
+            return self.bias.device
+        return self._last_device
+
+    def _cache_key(self, device: torch.device) -> CacheKey:
+        return self.canonical_weight_name, str(device), self.compute_dtype
+
     def _weight(self, device: torch.device) -> torch.Tensor:
+        self._last_device = device
+
+        def decode() -> torch.Tensor:
+            return self.reader.decode_tensor(
+                self.weight_name,
+                device=device,
+                output_dtype=self.compute_dtype,
+                rows_per_chunk=self.rows_per_chunk,
+            )
+
+        if self.cache_policy == "lru":
+            assert self.weight_cache is not None
+            element_size = torch.empty((), dtype=self.compute_dtype).element_size()
+            expected_bytes = self.out_features * self.in_features * element_size
+            return self.weight_cache.get_or_load(
+                self._cache_key(device), expected_bytes, decode
+            )
         cached = self._cached_weight
         if cached is not None and cached.device == device and cached.dtype == self.compute_dtype:
             return cached
         # A module moved after caching must not retain an obsolete device copy.
         if cached is not None:
             self.clear_cache()
-        decoded = self.reader.decode_tensor(
-            self.weight_name,
-            device=device,
-            output_dtype=self.compute_dtype,
-            rows_per_chunk=self.rows_per_chunk,
-        )
+        decoded = decode()
         if self.cache_policy == "persistent":
             self._cached_weight = decoded
         return decoded

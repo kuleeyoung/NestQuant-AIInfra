@@ -12,7 +12,7 @@ from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.core.quantizer import quantize_rows
 from nestquant.core.rotation import hadamard
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
-from nestquant.models.lazy_linear import LazyNQMCLinear
+from nestquant.models.lazy_linear import LazyNQMCLinear, LazyNQMCWeightCache
 
 
 class TestLazyNQMCLinear(unittest.TestCase):
@@ -24,11 +24,20 @@ class TestLazyNQMCLinear(unittest.TestCase):
         record = PackedNestQuantTensor.from_quantized_rows("proj.weight", rows)
         state = {
             "proj.weight": self.weight,
+            "proj_b.weight": torch.randn(5, 8),
+            "proj_c.weight": torch.randn(5, 8),
             "dense.weight": torch.randn(3, 8),
         }
+        records = {"proj.weight": record}
+        for name in ("proj_b.weight", "proj_c.weight"):
+            records[name] = PackedNestQuantTensor.from_quantized_rows(
+                name, quantize_rows(
+                    state[name], q=14, betas=(0.5, 0.75, 1.0, 1.25)
+                )
+            )
         path = Path(self.temporary.name) / "tiny.nqmc"
         PackedNestQuantModel.from_state_dict(
-            state, {"proj.weight": record}
+            state, records
         ).write_to_file(path)
         self.reader = NQMCFileReader(path)
 
@@ -88,6 +97,12 @@ class TestLazyNQMCLinear(unittest.TestCase):
             LazyNQMCLinear(self.reader, "dense.weight")
         with self.assertRaisesRegex(ValueError, "cache_policy"):
             LazyNQMCLinear(self.reader, "proj.weight", cache_policy="layer")
+        with self.assertRaisesRegex(ValueError, "requires"):
+            LazyNQMCLinear(self.reader, "proj.weight", cache_policy="lru")
+        with self.assertRaisesRegex(ValueError, "only valid"):
+            LazyNQMCLinear(
+                self.reader, "proj.weight", weight_cache=LazyNQMCWeightCache(80)
+            )
         with self.assertRaisesRegex(ValueError, "rows_per_chunk"):
             LazyNQMCLinear(self.reader, "proj.weight", rows_per_chunk=0)
         with self.assertRaisesRegex(ValueError, "bias"):
@@ -95,6 +110,66 @@ class TestLazyNQMCLinear(unittest.TestCase):
         layer = LazyNQMCLinear(self.reader, "proj.weight")
         with self.assertRaisesRegex(ValueError, "feature dimension"):
             layer(torch.randn(2, 7))
+
+    def test_shared_lru_obeys_capacity_and_updates_recency(self):
+        cache = LazyNQMCWeightCache(160)  # exactly two 5 x 8 BF16 weights
+        layers = {
+            name: LazyNQMCLinear(
+                self.reader, f"{name}.weight", compute_dtype=torch.bfloat16,
+                rows_per_chunk=2, cache_policy="lru", weight_cache=cache,
+            )
+            for name in ("proj", "proj_b", "proj_c")
+        }
+        inputs = torch.randn(2, 8, dtype=torch.bfloat16)
+        outputs = [layers[name](inputs) for name in ("proj", "proj_b", "proj", "proj_c")]
+        for output, name in zip(outputs, ("proj", "proj_b", "proj", "proj_c")):
+            weight = self.reader.decode_tensor(
+                f"{name}.weight", output_dtype=torch.bfloat16, rows_per_chunk=2
+            )
+            self.assertTrue(torch.equal(output, F.linear(inputs, weight)))
+        stats = cache.snapshot()
+        self.assertEqual(stats["hits"], 1)
+        self.assertEqual(stats["misses"], 3)
+        self.assertEqual(stats["decodes"], 3)
+        self.assertEqual(stats["evictions"], 1)
+        self.assertEqual(stats["resident_bytes"], 160)
+        self.assertEqual(stats["peak_resident_bytes"], 160)
+        self.assertTrue(layers["proj"].cached)
+        self.assertFalse(layers["proj_b"].cached)
+        self.assertTrue(layers["proj_c"].cached)
+
+    def test_oversized_weight_bypasses_lru_without_exceeding_budget(self):
+        cache = LazyNQMCWeightCache(79)
+        layer = LazyNQMCLinear(
+            self.reader, "proj.weight", compute_dtype=torch.bfloat16,
+            cache_policy="lru", weight_cache=cache,
+        )
+        inputs = torch.randn(1, 8, dtype=torch.bfloat16)
+        first = layer(inputs)
+        second = layer(inputs)
+        self.assertTrue(torch.equal(first, second))
+        self.assertFalse(layer.cached)
+        self.assertEqual(cache.snapshot(), {
+            "capacity_bytes": 79, "resident_bytes": 0,
+            "peak_resident_bytes": 0, "resident_tensor_count": 0,
+            "hits": 0, "misses": 2, "decodes": 2,
+            "evictions": 0, "bypasses": 2, "hit_rate": 0.0,
+        })
+
+    def test_cache_validates_budget_and_can_reset_statistics(self):
+        with self.assertRaisesRegex(TypeError, "integer"):
+            LazyNQMCWeightCache(True)
+        with self.assertRaisesRegex(ValueError, "nonnegative"):
+            LazyNQMCWeightCache(-1)
+        cache = LazyNQMCWeightCache(80)
+        layer = LazyNQMCLinear(
+            self.reader, "proj.weight", compute_dtype=torch.bfloat16,
+            cache_policy="lru", weight_cache=cache,
+        )
+        layer(torch.randn(1, 8, dtype=torch.bfloat16))
+        cache.clear(reset_statistics=True)
+        self.assertEqual(cache.snapshot()["resident_bytes"], 0)
+        self.assertEqual(cache.snapshot()["misses"], 0)
 
 
 if __name__ == "__main__":

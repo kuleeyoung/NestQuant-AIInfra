@@ -1,0 +1,52 @@
+{
+  "experiment": "capacity-bounded decoded-weight LRU",
+  "checkpoint": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3.nqmc",
+  "checkpoint_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "weights": [
+    "model.layers.0.self_attn.q_proj.weight",
+    "model.layers.1.self_attn.q_proj.weight",
+    "model.layers.2.self_attn.q_proj.weight"
+  ],
+  "decoded_weight_bytes_each": 8388608,
+  "capacity_bytes": 16777216,
+  "input_shape": [128, 2048],
+  "rows_per_chunk": 128,
+  "input_hadamard": true,
+  "device": "NVIDIA GeForce RTX 5070",
+  "torch_version": "2.14.1+cu130",
+  "locality": {
+    "raw_evidence": "results/raw/llama32_1b_lru_locality.json",
+    "sequence": [0, 1, 0, 1, 0, 1],
+    "hits": 4,
+    "misses": 2,
+    "decodes": 2,
+    "evictions": 0,
+    "hit_rate": 0.6666666666666666,
+    "hit_mean_ms": 0.60042425,
+    "miss_mean_ms": 113.291473,
+    "resident_bytes": 16777216,
+    "peak_resident_bytes": 16777216
+  },
+  "thrashing": {
+    "raw_evidence": "results/raw/llama32_1b_lru_thrash.json",
+    "sequence": [0, 1, 2, 0, 1, 2],
+    "hits": 0,
+    "misses": 6,
+    "decodes": 6,
+    "evictions": 4,
+    "hit_rate": 0.0,
+    "miss_mean_ms": 99.160673,
+    "resident_bytes": 16777216,
+    "peak_resident_bytes": 16777216
+  },
+  "correctness": {
+    "all_exercised_layers_bitwise_equal_to_full_decode": true,
+    "max_abs_error": 0.0
+  },
+  "limitations": [
+    "The 16 MiB budget covers retained decoded weights, not transient decode workspaces or activations.",
+    "Measurements use synthetic layer access sequences, not full-model autoregressive execution.",
+    "The cache lock prevents duplicate loads, but concurrent in-flight forwards may retain evicted tensor references beyond the accounting lifetime.",
+    "Execution uses materialized BF16 weights and ordinary PyTorch GEMM, not packed low-bit GEMM."
+  ]
+}
