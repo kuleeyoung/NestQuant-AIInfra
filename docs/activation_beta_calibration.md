@@ -24,6 +24,8 @@
 
 选择目标为 Appendix F First-beta 总平方误差。overload 是约束和审计指标，不单独作为优化目标。所有候选 beta 必须严格递增，最大的候选必须覆盖全部校准样本。
 
+本项目的 codec 在细格最近点投影后判定 overload；真实激活上，细格点随 beta 跳变可能产生“较小 beta 已 fit、较大 beta 暂时重新 overload”的非单调表，而 Appendix-F DP 要求嵌套覆盖。校准器因此使用保守的后缀 OR 单调包络：候选只有在自身及所有更大 beta 都 fit 时才视为稳定覆盖。产物同时保存原始/稳定 overload 计数和被包络改变的 cell 数，不能把修正后的计数冒充原始 codec 行为。
+
 ## 入口
 
 校准：

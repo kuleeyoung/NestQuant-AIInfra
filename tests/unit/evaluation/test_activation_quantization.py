@@ -7,6 +7,7 @@ from transformers import LlamaConfig, LlamaForCausalLM
 from nestquant.evaluation.activation_quantization import (
     ActivationBlockSampler,
     ActivationQuantizationStats,
+    _monotone_overload_envelope,
     attach_activation_calibration,
     enable_activation_quantization,
 )
@@ -14,6 +15,22 @@ from nestquant.models.rotated_linear import convert_linears_to_hadamard_coordina
 
 
 class TestActivationQuantization(unittest.TestCase):
+    def test_overload_envelope_is_conservative_and_monotone(self):
+        raw = torch.tensor([
+            [True, False, True, False],
+            [False, False, False, False],
+            [True, True, False, False],
+        ])
+        envelope, changed = _monotone_overload_envelope(raw)
+        expected = torch.tensor([
+            [True, True, True, False],
+            [False, False, False, False],
+            [True, True, False, False],
+        ])
+        self.assertTrue(torch.equal(envelope, expected))
+        self.assertEqual(changed, 1)
+        self.assertFalse(((~envelope[:, :-1]) & envelope[:, 1:]).any().item())
+
     def test_calibration_sampler_builds_all_three_profiles(self):
         sampler = ActivationBlockSampler(calibration_chunks=2, sample_limit_per_module=16)
         generator = torch.Generator().manual_seed(91)

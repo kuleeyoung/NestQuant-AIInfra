@@ -36,6 +36,27 @@ def projection_kind(module_name: str) -> str:
     raise ValueError(f"unsupported Llama projection name: {module_name}")
 
 
+def _monotone_overload_envelope(overloaded: torch.Tensor) -> tuple[torch.Tensor, int]:
+    """Return the conservative suffix-OR envelope required by First-beta DP.
+
+    Nested-code overload is measured after fine-lattice projection.  That
+    projection can change discontinuously as beta grows, so a real candidate
+    table can contain a fit followed by a later overload.  Appendix-F DP
+    requires nested coverage.  Treat a candidate as stably fitting only when
+    it and every larger candidate fit, and disclose every changed cell.
+    """
+    if not isinstance(overloaded, torch.Tensor) or overloaded.dtype != torch.bool:
+        raise TypeError("overloaded must be a bool torch.Tensor")
+    if overloaded.ndim != 2 or overloaded.shape[1] == 0:
+        raise ValueError("overloaded must have shape [samples, candidates]")
+    envelope = torch.flip(
+        torch.cummax(torch.flip(overloaded.to(torch.int8), dims=(1,)), dim=1).values,
+        dims=(1,),
+    ).to(torch.bool)
+    changed = int((envelope != overloaded).sum().item())
+    return envelope, changed
+
+
 class ActivationBlockSampler:
     """Bounded deterministic samples of normalized projection-input E8 blocks."""
 
@@ -120,11 +141,12 @@ class ActivationBlockSampler:
                 overload_parts.append(overload.cpu())
             mse = torch.cat(mse_parts)
             overload = torch.cat(overload_parts)
+            stable_overload, envelope_changed = _monotone_overload_envelope(overload)
             selected = select_beta_subset(
-                beta_values, mse, overload, selected_beta_count
+                beta_values, mse, stable_overload, selected_beta_count
             )
             indices = list(selected.beta_indices)
-            selected_overload = overload[:, indices]
+            selected_overload = stable_overload[:, indices]
             first_fitting = (~selected_overload).to(torch.int64).argmax(dim=1)
             assignments = torch.tensor(indices, dtype=torch.int64)[first_fitting]
             total_error = float(mse[torch.arange(mse.shape[0]), assignments].sum().item())
@@ -138,6 +160,9 @@ class ActivationBlockSampler:
                 ).hexdigest(),
                 "first_beta_total_squared_error": total_error,
                 "overload_count_by_candidate": overload.sum(dim=0).tolist(),
+                "stable_overload_count_by_candidate": stable_overload.sum(dim=0).tolist(),
+                "overload_monotone_envelope_changed_cells": envelope_changed,
+                "overload_monotone_envelope": "conservative_suffix_or",
             }
             profiles[scope][key] = record
             if progress_callback is not None:
