@@ -18,6 +18,8 @@ NQMC 加载器已经完成从整文件/整 state-dict 常驻到分块校验、�
 
 局部 `X H` 坐标 A4 已接入该最佳 W4 检查点并完成全量评测：W4/W4A4 PPL 为 10.076729/10.688878，A4 增加 6.075%；112 个模块均在局部坐标量化，完整 overload 为 5.4411%。见[W4A4 完整报告](llama32_1b_paper_hadamard_w4a4_full.md)和[首窗口 smoke](llama32_1b_paper_hadamard_w4a4_smoke.md)。
 
+A4 beta 已在互不重叠的 WikiText-2 train 窗口上完成校准与 held-out 选择。上游默认/global/projection-type/module 的 held-out PPL 分别为 9.782117/10.428573/10.557727/10.270711，因此不推广新配置并保留上游默认；详见[独立 held-out 报告](llama32_1b_a4_beta_holdout.md)和[机器可读汇总](llama32_1b_a4_beta_holdout.json)。原始逐模块统计留在 `results/raw/calibration/`，不进入 Git。
+
 论文 §4.3 的局部 `WH` 权重与在线 `XH` 输入路径已完成短 token 数值 smoke；1/7/112 个 Linear 的相对 L2 logits 误差为 0.9554%/1.0751%/1.0964%，本次 top-1 均一致。该结果只用于旋转语义排错，见 [Hadamard 坐标 smoke](llama32_1b_hadamard_coordinate_smoke.md)。
 
 ## WikiText-2 PPL 汇总

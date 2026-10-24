@@ -52,6 +52,8 @@ python scripts/evaluate_activation_beta_profiles.py --offline
 
 默认协议固定用 manifest 的窗口 0--7 校准、窗口 8--15 验证，并比较 `upstream_default`、`global`、`projection_type`、`module`。脚本会拒绝窗口重叠，并保存 manifest、checkpoint、beta 配置和验证 token 的 SHA-256，以及各方案的 PPL、overload 和相对平方误差。该结果只用于选择 profile，不是最终测试集指标，也不代表低比特激活 kernel 性能。
 
+本轮 held-out 结果见[报告](../results/llama32_1b_a4_beta_holdout.md)：上游默认 PPL 9.782117，校准后的 global / projection-type / module 分别为 10.428573 / 10.557727 / 10.270711。因此保留上游默认配置。该负结果说明降低 overload 的校准代理目标没有转化成更低的端到端 NLL。
+
 `global` 可替换为 `projection_type` 或 `module`。评测 manifest 保存配置绝对路径、SHA-256、profile 和校准 token 哈希。
 
 ## 结论边界

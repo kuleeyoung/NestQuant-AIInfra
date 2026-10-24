@@ -1,0 +1,20 @@
+{
+  "status": "completed",
+  "decision": "retain_upstream_default",
+  "selection_split": "WikiText-2 train held-out manifest windows 8-15",
+  "calibration_window_indices": [0, 1, 2, 3, 4, 5, 6, 7],
+  "holdout_window_indices": [8, 9, 10, 11, 12, 13, 14, 15],
+  "holdout_token_count": 16384,
+  "holdout_token_ids_sha256": "6f1db4ae265dbfef92f9fc496fb8e170b9d1eeb6b7a91a68e881365b805126f2",
+  "checkpoint_sha256": "f594a20cd2f2abfed88fc1bdeabe8efb7a71e4bef5509933a74ab327a841f821",
+  "beta_config_sha256": "6a6b02797742419f9a55bf5c4fe4b5c31f6f35b1b534528278787bfe913db569",
+  "calibration_manifest_sha256": "7ff56937cb7eac904b42df84ff4c6bd9f6e002d91574e0ebacde78aa5830d2d6",
+  "raw_result_sha256": "aaba10752edb39f58bf6e1143bea1b535e0d6372b9e56bae0382d000cbb340bf",
+  "profiles": {
+    "upstream_default": {"perplexity": 9.782116807070311, "overload_fraction": 0.05435952246189117, "relative_squared_error": 0.006384033353775781},
+    "global": {"perplexity": 10.428573025426024, "overload_fraction": 0.0021955132484436034, "relative_squared_error": 0.012977454368943282},
+    "projection_type": {"perplexity": 10.557726970384122, "overload_fraction": 0.0035305336117744447, "relative_squared_error": 0.01259561422725554},
+    "module": {"perplexity": 10.270710532056983, "overload_fraction": 0.009172803163528443, "relative_squared_error": 0.010912805385099384}
+  },
+  "scope": "fake_quant_quality_simulation_not_packed_activation_inference"
+}
