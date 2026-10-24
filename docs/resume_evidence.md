@@ -12,6 +12,7 @@
 - 已实现论文式局部 `W H` 权重与在线 `X H` 输入路径、自包含 NQMC 和独立回载；完整 288,627-token 同协议对照中，普通 W4 PPL 为 11.054059，局部 Hadamard W4 为 10.917094，下降 1.239%。运行时仍为 BF16 Linear，不能写成低比特推理加速。
 - 已验证论文式 Hadamard 与 shared128 block-LDLQ 可以叠加：上游 E8 语义 NQRT v3 组合 W4 PPL 为 10.076886；1,044,566,690 B 的 NQMC 中 112/112 个量化记录携带明确 codec 语义，并完成全量回载评测。历史 legacy 消融 PPL 为 10.076729，继续用于说明 Hadamard 与 LDLQ 的近似可加性。
 - 在同一 NQRT v3 checkpoint 上完成 W4/W4KV4/W4A4/W4A4KV4 全量矩阵，PPL 为 10.076886/10.515783/10.689190/11.232054；用 NLL 分解确认 A4 损失大于 KV4，联合交互项为 +0.006906。A4/KV4 仍是浮点重建质量仿真，不宣称低比特 kernel 加速。
+- 实现 bounded-memory NQMC inspector，在不加载模型或反量化权重的情况下，对 1.04 GB checkpoint 完成 payload/file SHA、146 个唯一 record 和 112 个 NQRT v3 量化记录审计；实测量化 record 码率为 4.267428 bit/parameter，并明确整体 42.2623% BF16 逻辑载荷比例受 dense tied embedding 影响。
 - 已实现校准激活二阶统计、8×8 block-LDL 分解、E8 块误差反馈和分组 Hessian 惰性加载；在相同源码与测试 token 下，16/64 个 WikiText-2 train 序列校准的 LDLQ 将 Llama-3.2-1B NestQuant W4 PPL 从 11.2026 分别降至 10.3237/10.2761，train-64 消除了 64.09% 的 BF16 PPL 差距。
 - 已将 train64 block-LDLQ 的最终 code、beta index、行范数和 dither 状态写入 NQMC：实测文件 659,281,364 B、4.267043 bit/量化参数；无需 4.77 GiB Hessian 即可独立回载，完整 PPL 与内存量化精确一致为 10.276133。
 - 已实现旋转坐标下的 `H_rot=R^T H R` 并完成同源码两种子消融：seed 123/124 的旋转+train64 block-LDLQ PPL 为 10.1367/10.1215，均优于对应纯旋转 11.0048/11.1479 和仅 LDLQ 10.2761，相对普通 W4 分别消除 73.74%/74.78% 的 BF16 差距。

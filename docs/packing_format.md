@@ -58,6 +58,8 @@ NQMC v1 currently requires a little-endian host and restores quantized tensors b
 
 模型导出使用 `PackedNestQuantModel.write_to_file()` 逐记录写入临时 payload、增量计算 SHA-256，再以 8 MiB 分块组成临时目标文件并原子替换正式路径，因此不需要额外拼接一个完整 NQMC `bytes` 副本。模型回载使用 `NQMCFileReader` 分块校验 payload SHA-256，并按记录读取、验证和反量化。写入模型前先检查完整记录集合、state-dict 名称、shape、dtype 与 alias，因此格式错误不会留下半加载模型。该路径降低的是导出/加载期间的主机瞬时副本：最终模型仍以浮点权重常驻并执行。`scripts/benchmark_nqmc_stream_load.py` 只测检查点回载耗时和峰值 RSS，不运行 PPL，也不能作为推理加速证据。
 
+`scripts/inspect_nqmc.py` 在同一个 seek-based reader 上提供只读审计。默认验证 manifest、entry bounds 和 payload checksum；`--records` 逐记录聚合 NQRT version、codec semantics、q、beta count 与 dither 模式，`--file-sha256` 额外计算完整文件哈希。该路径不加载模型或执行反量化，详见 [NQMC inspection](nqmc_inspection.md)。
+
 ## API and checks
 
 ```python

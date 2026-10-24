@@ -1,0 +1,31 @@
+{
+  "status": "completed",
+  "tool": "scripts/inspect_nqmc.py --records --file-sha256",
+  "checkpoint": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3.nqmc",
+  "format": "NQMC v1 containing NQRT v3 quantized records",
+  "file_bytes": 1044566690,
+  "file_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "payload_checksum_verified": true,
+  "tensor_count_including_aliases": 147,
+  "unique_tensor_record_count": 146,
+  "quantized_tensor_count": 112,
+  "quantized_parameter_count": 973078528,
+  "dense_tensor_count": 34,
+  "tied_alias_count": 1,
+  "effective_bits_per_quantized_parameter_including_record_metadata": 4.267427592441954,
+  "file_to_raw_bf16_payload_ratio": 0.42262280242081657,
+  "record_inspection": {
+    "quantized_records_parsed": 112,
+    "codec_semantics_counts": {"e8_upstream_half_coset_tie_v1": 112},
+    "nqrt_version_counts": {"3": 112},
+    "q_counts": {"14": 112},
+    "beta_count_counts": {"4": 112},
+    "dither_storage_counts": {"generator_state": 112}
+  },
+  "model_encoder": "block_ldlq",
+  "wall_seconds": 11.919,
+  "limitations": [
+    "The BF16 comparison is a logical payload calculation, not a measured BF16 checkpoint file.",
+    "The inspector does not dequantize weights or establish low-bit runtime speed or device-memory residency."
+  ]
+}
