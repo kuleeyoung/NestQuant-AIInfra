@@ -74,6 +74,8 @@ from nestquant.experiments.matrix_product import run_synthetic_matrix_product
 
 `core/model_checkpoint_file.py` adds the file-scale path: it validates the header, manifest, entry bounds and payload checksum without `Path.read_bytes()`, then validates and writes one tensor record at a time. The two-pass design preserves transactional behavior before model mutation. A real 1.04 GB checkpoint comparison records the resulting peak-memory/time tradeoff in [the NQMC load benchmark](../results/llama32_1b_nqmc_load_benchmark.md).
 
+The same reader now indexes canonical record names, resolves tied aliases, and exposes single-record read/selective-decode operations. This is the storage/runtime seam for future lazy layers or fused kernels: current selective decode still materializes a float32 tensor and substantial intermediates, so it is an observability and optimization baseline rather than packed execution. See [the selective-decode benchmark](../results/llama32_1b_nqrt3_selective_decode.md).
+
 ## 当前阶段状态
 
 架构拆分只改变 Python 模块边界和导入路径，没有改变量化数学、PPL 口径或实验参数。NestQuant LLM adapter 仍属于有限范围复现；普通 W4 与 block-LDLQ W4 已有真实低比特模型文件，但载入后都会反量化执行。权重旋转和 E8 block-LDLQ 已通过旋转协方差组合并完成四组质量消融；KV4 已实现 post-RoPE 匹配 Q/K 旋转与逐 head E8 浮点质量仿真。QA-LDLQ 已实现、完成 2048 倍 Hessian 归一化差异审计，并在有界修正后得到未优于普通 LDLQ 的负结果。尚未完成的是论文 §4.3 权重融合旋转与在线激活旋转的逐项上游对齐、旋转元数据 NQMC、packed KV cache 和低比特推理 kernel。具体差距见 [论文实现对应矩阵](paper_implementation_matrix.md)。

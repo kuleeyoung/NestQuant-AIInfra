@@ -44,6 +44,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **激活与 KV**：七类 Llama Linear 输入 A4；post-RoPE Q/K 匹配旋转；逐 attention-head KV4。
 - **真实权重容器**：NQPK/NQRT/NQMC 固定宽度码流、beta ID、row norm、dither 状态、共享权重别名及完整模型回载。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
+- **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **论文式局部旋转**：112 个 Llama Linear 支持离线保存 `W H`、在线计算 `X H`、旋转坐标 W4/LDLQ/A4 和自包含 NQMC 回载；当前上游语义 NQRT v3 W4/W4A4 PPL 为 10.076886/10.689190。
 - **外部基线**：完成 QuaRot Llama-3.2-1B 兼容移植和 BF16/W4/W4KV4/W4A4/W4A4KV4 完整消融。
 - **实验审计**：保存 revision、token 哈希、配置哈希、校准 provenance、阶段耗时和失败状态。
@@ -161,6 +162,7 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [NQRT v3 上游 E8 语义 W4/W4KV4/W4A4/W4A4KV4 递进](results/llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md)
 - [NQMC inspector 使用与成本边界](docs/nqmc_inspection.md)
 - [Llama-3.2-1B NQRT v3 checkpoint 审计](results/llama32_1b_nqrt3_checkpoint_inspection.md)
+- [Llama-3.2-1B 单 tensor 选择性解码基线](results/llama32_1b_nqrt3_selective_decode.md)
 - [固定作者代码与局部 Hadamard A4 语义对齐](docs/upstream_activation_alignment.md)
 - [A4 beta 校准协议](docs/activation_beta_calibration.md)
 - [简历证据边界](docs/resume_evidence.md)

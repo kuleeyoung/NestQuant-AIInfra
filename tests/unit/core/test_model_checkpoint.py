@@ -122,6 +122,30 @@ class TestModelCheckpoint(unittest.TestCase):
             self.assertTrue(torch.equal(tensor, expected[name]), name)
         self.assertEqual(target.embed_tokens.weight.data_ptr(), target.lm_head.weight.data_ptr())
 
+    def test_file_reader_named_access_resolves_alias_and_selectively_decodes(self):
+        source = TinyTiedModel().to(torch.bfloat16)
+        rows = quantize_rows(
+            source.state_dict()["lm_head.weight"], q=14,
+            betas=(0.5, 0.75, 1.0, 1.25),
+        )
+        record = PackedNestQuantTensor.from_quantized_rows("lm_head.weight", rows)
+        checkpoint = PackedNestQuantModel.from_state_dict(
+            source.state_dict(), {"lm_head.weight": record},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            reader = NQMCFileReader(self._write_checkpoint(checkpoint, directory))
+            self.assertEqual(reader.canonical_name("embed_tokens.weight"), "lm_head.weight")
+            self.assertEqual(reader.get_entry("embed_tokens.weight").name, "lm_head.weight")
+            entry, packed = reader.read_named_record("embed_tokens.weight")
+            self.assertEqual(entry.name, "lm_head.weight")
+            self.assertIsInstance(packed, PackedNestQuantTensor)
+            restored = reader.decode_tensor("embed_tokens.weight")
+            dense = reader.decode_tensor("norm.weight")
+            with self.assertRaisesRegex(KeyError, "not present"):
+                reader.get_entry("missing.weight")
+        self.assertTrue(torch.equal(restored, record.dequantize()))
+        self.assertTrue(torch.equal(dense, source.norm.weight))
+
     def test_streaming_writer_matches_in_memory_format(self):
         model = TinyTiedModel().to(torch.bfloat16)
         checkpoint = PackedNestQuantModel.from_state_dict(

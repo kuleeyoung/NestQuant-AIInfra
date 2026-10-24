@@ -62,6 +62,7 @@ class NQMCFileReader:
         self.entries, self.aliases, self.model_metadata, expected_sha = self._validate_manifest(
             manifest
         )
+        self._entries_by_name = {entry.name: entry for entry in self.entries}
         if verify_checksum:
             digest = hashlib.sha256()
             with self.path.open("rb") as stream:
@@ -131,6 +132,35 @@ class NQMCFileReader:
     @property
     def tensor_count(self) -> int:
         return len(self.entries) + len(self.aliases)
+
+    def canonical_name(self, name: str) -> str:
+        """Resolve a state-dict name to the unique stored record name."""
+        if name in self._entries_by_name:
+            return name
+        try:
+            return self.aliases[name]
+        except KeyError as error:
+            raise KeyError(f"tensor is not present in NQMC: {name}") from error
+
+    def get_entry(self, name: str) -> NQMCEntry:
+        """Return manifest metadata for a tensor or tied alias in O(1)."""
+        return self._entries_by_name[self.canonical_name(name)]
+
+    def read_named_record(
+        self, name: str
+    ) -> tuple[NQMCEntry, torch.Tensor | PackedNestQuantTensor]:
+        """Read one stored record by tensor name without decoding quantized values."""
+        entry = self.get_entry(name)
+        return entry, self.read_entry(entry)
+
+    def decode_tensor(
+        self, name: str, *, device: torch.device | str = "cpu"
+    ) -> torch.Tensor:
+        """Read and decode exactly one named tensor, resolving tied aliases."""
+        _entry, record = self.read_named_record(name)
+        if isinstance(record, PackedNestQuantTensor):
+            return record.dequantize(device=device)
+        return record.to(device)
 
     def read_entry(self, entry: NQMCEntry) -> torch.Tensor | PackedNestQuantTensor:
         with self.path.open("rb") as stream:

@@ -1,0 +1,48 @@
+{
+  "status": "completed",
+  "scope": "named single-tensor NQMC read and selective CUDA decode",
+  "checkpoint_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "checkpoint_bytes": 1044566690,
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 5070",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "warmup": 1,
+    "measured_repeats": 3,
+    "cuda_context_initialized_before_rss_baseline": true,
+    "one_tensor_per_process": true,
+    "payload_checksum_verified_in_timed_run": false
+  },
+  "tensors": [
+    {
+      "name": "model.layers.0.self_attn.q_proj.weight",
+      "shape": [2048, 2048],
+      "decoded_dtype": "float32",
+      "record_bytes": 2241886,
+      "decoded_tensor_bytes": 16777216,
+      "read_mean_ms": 5.865880000001766,
+      "read_median_ms": 5.697936000004233,
+      "decode_mean_ms": 71.56453133333211,
+      "decode_median_ms": 71.07004399999539,
+      "rss_peak_increment_bytes": 823328768,
+      "cuda_peak_allocated_bytes": 247997952,
+      "raw_manifest_sha256": "d89d782fe42d52cc1ccea292452fcf9b1fbc559127cee04664aa04731327a1da"
+    },
+    {
+      "name": "model.layers.0.mlp.down_proj.weight",
+      "shape": [2048, 8192],
+      "decoded_dtype": "float32",
+      "record_bytes": 8926555,
+      "decoded_tensor_bytes": 67108864,
+      "read_mean_ms": 27.940818999998857,
+      "read_median_ms": 25.720882000001666,
+      "decode_mean_ms": 337.4323176666631,
+      "decode_median_ms": 331.6120490000003,
+      "rss_peak_increment_bytes": 1284022272,
+      "cuda_peak_allocated_bytes": 891299328,
+      "raw_manifest_sha256": "d824b424b5cf8578a0b01fc1d891f2231d12b89dc3acde39a82eb9ac7aa6111b"
+    }
+  ],
+  "conclusion": "O(1) named record lookup and seek/read are inexpensive relative to the current float32 E8 dequantization path; temporary host/device allocations, not file seeking, are the main optimization target.",
+  "claim_boundary": "No GEMM or model forward was executed. Results do not establish lazy-layer end-to-end latency, packed inference speed, or low-bit GPU residency."
+}
