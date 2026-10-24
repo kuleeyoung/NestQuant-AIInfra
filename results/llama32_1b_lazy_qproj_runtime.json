@@ -1,0 +1,42 @@
+{
+  "experiment": "single-layer lazy NQMC runtime",
+  "checkpoint": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3.nqmc",
+  "checkpoint_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "weight_name": "model.layers.0.self_attn.q_proj.weight",
+  "weight_shape": [2048, 2048],
+  "input_shape": [128, 2048],
+  "device": "NVIDIA GeForce RTX 5070",
+  "torch_version": "2.14.1+cu130",
+  "compute_dtype": "bfloat16",
+  "input_hadamard": true,
+  "rows_per_chunk": 128,
+  "first_forward_interpretation": "The module cache is empty, but reference verification read the same record before timing, so this is not a cold OS page-cache measurement.",
+  "none": {
+    "raw_evidence": "results/raw/llama32_1b_lazy_qproj_none.json",
+    "cold_forward_ms": 122.036175,
+    "repeated_forward_mean_ms": 102.0840332,
+    "repeated_forward_median_ms": 101.706629,
+    "repeated_cuda_peak_increment_mib": 22.283203125,
+    "retained_decoded_weight_mib": 0.0
+  },
+  "persistent": {
+    "raw_evidence": "results/raw/llama32_1b_lazy_qproj_persistent.json",
+    "cold_forward_ms": 118.678343,
+    "repeated_forward_mean_ms": 1.191010467,
+    "repeated_forward_median_ms": 1.1458005,
+    "repeated_cuda_peak_increment_mib": 1.5,
+    "retained_decoded_weight_mib": 8.0
+  },
+  "derived": {
+    "steady_state_mean_speedup_from_avoiding_redecode": 85.712,
+    "steady_state_incremental_peak_reduction_percent": 93.268
+  },
+  "correctness": {
+    "reference": "full non-chunked BF16 decode followed by the same Hadamard and PyTorch Linear",
+    "none_bitwise_equal": true,
+    "persistent_bitwise_equal": true,
+    "max_abs_error": 0.0,
+    "output_checksum": -550.4730224609375
+  },
+  "claim_boundary": "This measures one layer using lazy NQMC read/decode, online Hadamard, and ordinary PyTorch BF16 GEMM. The speedup is cache reuse versus repeated decode, not packed low-bit GEMM or end-to-end model acceleration."
+}

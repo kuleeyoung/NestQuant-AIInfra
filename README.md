@@ -78,7 +78,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 136 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v2/v3 语义兼容、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-24 在 WSL/CUDA 正式环境运行 `python -m unittest discover -s tests -v`，136 项全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 144 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v2/v3 语义兼容、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear 及缓存策略、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-24 在 WSL/CUDA 正式环境运行 `python -m unittest discover -s tests -v`，144 项全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 

@@ -1,5 +1,6 @@
 """Adapters applying algorithm primitives to neural-network modules."""
 
+from .lazy_linear import CachePolicy, LazyNQMCLinear
 from .quantization import quantize_nestquant_w4_, quantize_rtn_w4_
 from .rotated_linear import (
     HadamardConversionReport,
@@ -10,8 +11,10 @@ from .rotated_linear import (
 )
 
 __all__ = [
+    "CachePolicy",
     "HadamardConversionReport",
     "HadamardRotatedLinear",
+    "LazyNQMCLinear",
     "PAPER_HADAMARD_FORMAT",
     "convert_linears_to_hadamard_coordinates_",
     "restore_hadamard_structure_from_metadata_",
