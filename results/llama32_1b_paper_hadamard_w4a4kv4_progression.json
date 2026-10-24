@@ -1,0 +1,40 @@
+{
+  "status": "completed",
+  "model": "meta-llama/Llama-3.2-1B",
+  "protocol": "paper-style local Hadamard plus shared128 block-LDLQ, BF16 lm_head",
+  "predicted_token_count": 288627,
+  "chunk_count": 141,
+  "test_token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "checkpoint_sha256": "f594a20cd2f2abfed88fc1bdeabe8efb7a71e4bef5509933a74ab327a841f821",
+  "profiles": {
+    "w4": {"perplexity": 10.076728589568342, "mean_nll": 2.3102286652815183},
+    "w4kv4": {"perplexity": 10.524109974309274, "mean_nll": 2.353668812981797},
+    "w4a4": {"perplexity": 10.688878181759975, "mean_nll": 2.3692037786284925},
+    "w4a4kv4": {"perplexity": 11.231159745465659, "mean_nll": 2.418692035498804}
+  },
+  "incremental_effects": {
+    "a4_ppl_delta_from_w4": 0.612149592191633,
+    "kv4_ppl_delta_from_w4": 0.447381384740932,
+    "combined_ppl_delta_from_w4": 1.154431155897317,
+    "ppl_interaction": 0.094900178964752,
+    "a4_nll_delta_from_w4": 0.0589751133469742,
+    "kv4_nll_delta_from_w4": 0.0434401477002787,
+    "combined_nll_delta_from_w4": 0.1084633702172857,
+    "nll_interaction": 0.0060481091700328
+  },
+  "quality_statistics": {
+    "w4kv4_kv_relative_squared_error": 0.006190325637367145,
+    "w4a4kv4_kv_relative_squared_error": 0.006190200878997956,
+    "w4a4kv4_activation_relative_squared_error": 0.006390429733552526,
+    "w4a4kv4_activation_overload_fraction": 0.05439936801896873,
+    "activation_module_count": 112,
+    "kv_layer_count": 16
+  },
+  "raw_sha256": {
+    "w4": "ac9cbb6105026b1f42ab11c6cd6cc1406e9befb0b571eee26298872f9c97aa59",
+    "w4a4": "76fae64d2c0c2c0cbb32e90c850c084e84732836c2695383137811e810c420fa",
+    "w4kv4": "8fa3975b43e4d3d9035ed06c68d1d2554e4639c56be9bb290845d9f9336cf71a",
+    "w4a4kv4": "e49f976529c8d361b7d959a96e99b9cbc985dbbd167e6a609c1983c4051291b7"
+  },
+  "evidence_boundary": "W4 is loaded from packed NQMC then dequantized for BF16 Linear execution; A4 and KV4 are floating-point reconstruction quality simulations, not packed runtime or kernel benchmarks."
+}

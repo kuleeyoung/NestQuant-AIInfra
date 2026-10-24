@@ -24,6 +24,7 @@
 | 论文式 Hadamard W4 PPL | 10.917094 | [局部 Hadamard W4 完整报告](../results/llama32_1b_paper_hadamard_w4_full.md) | 同协议普通 W4 为 11.054059；无 LDLQ |
 | 论文式 Hadamard + shared128 LDLQ W4 PPL | **10.076729** | [Hadamard/LDLQ 组合消融](../results/llama32_1b_paper_hadamard_ldlq_ablation.md) | 当前最佳 W4；真实 NQMC 回载 |
 | 论文式 Hadamard + shared128 LDLQ W4A4 PPL | **10.688878** | [局部 Hadamard W4A4 完整报告](../results/llama32_1b_paper_hadamard_w4a4_full.md) | 固定上游全局 A beta；局部 `X H` 坐标 fake quant |
+| 论文式 Hadamard + shared128 LDLQ W4KV4/W4A4KV4 PPL | **10.524110 / 11.231160** | [局部 Hadamard 完整递进矩阵](../results/llama32_1b_paper_hadamard_w4a4kv4_progression.md) | 同一 NQMC；A4/KV4 为浮点重建质量仿真 |
 | A4 beta held-out 选择 | 保留上游默认 | [独立 train held-out 报告](../results/llama32_1b_a4_beta_holdout.md) | 新 module 最优 PPL 10.270711，仍差于默认 9.782117；未读取 test 选配置 |
 | QuaRot 兼容移植 GPTQ W4 PPL | 10.508346 | [QuaRot 对照](../results/llama32_1b_quarot_comparison.md) | 同校准/测试兼容移植，不是官方 Llama-3.2 结果 |
 | QuaRot 兼容移植 W4A4KV4 PPL | 21.095586 | 同上 | fake-quant 兼容移植 |

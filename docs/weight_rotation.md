@@ -34,7 +34,7 @@ PyTorch 的线性层记为 `Y = X W^T`。对每层设 `R = D H`，其中 `D` 是
 
 shared128 LDLQ 组合实验已经完成：仅 LDLQ W4 为 10.211760，论文式 Hadamard + shared128 LDLQ W4 为 10.076729，继续下降 0.135031（1.322%）。相对普通 W4 的总改善为 0.977330；Hadamard 与 LDLQ 的收益近似可加。完整四因素消融见[组合报告](../results/llama32_1b_paper_hadamard_ldlq_ablation.md)。
 
-该最佳 W4 检查点上的固定上游全局 beta A4 完整评测见[W4A4 完整报告](../results/llama32_1b_paper_hadamard_w4a4_full.md)。结果建立了可复现基线，但 5.4411% overload 支持下一阶段先校准逐层 A beta。
+该最佳 W4 检查点上的固定上游全局 beta A4 完整评测见[W4A4 完整报告](../results/llama32_1b_paper_hadamard_w4a4_full.md)。后续逐层 A beta 校准在独立 train held-out 上未超过默认值，因此保留上游默认；KV4 也已组合，完整 W4/W4KV4/W4A4/W4A4KV4 递进见[四档报告](../results/llama32_1b_paper_hadamard_w4a4kv4_progression.md)。
 - `convert_linears_to_hadamard_coordinates_`：先验证全部目标名称、维度和 tied embedding，再一次性替换模型投影；默认跳过与输入 embedding 共享存储的 `lm_head`。`scripts/check_llama_hadamard_coordinates.py` 用固定短 token 流比较转换前后 logits，只作为等价性 smoke。
 
 旋转消融的评测入口为 `--methods nestquant_w4 --rotation-seed 123`；省略该参数是无旋转对照。与 `--ldlq-hessian-dir` 同时使用时，量化器按每个 Linear 的旋转计算 `H_rot = R^T H R`，再做 block-LDL 分解。该变换与重新对旋转激活 `X R` 收集协方差数学等价，并有显式激活单元测试。当前 NQRT 未保存旋转定义，因此旋转模式会拒绝导出/回载参数，防止把旋转坐标系码字当作原坐标系权重读取。既有无旋转 NQMC 文件不受影响。

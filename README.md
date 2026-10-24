@@ -154,6 +154,7 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [论文式 Hadamard + shared128 LDLQ W4A4 首窗口 smoke](results/llama32_1b_paper_hadamard_w4a4_smoke.md)
 - [论文式 Hadamard + shared128 LDLQ W4A4 完整 WikiText-2 PPL](results/llama32_1b_paper_hadamard_w4a4_full.md)
 - [A4 beta 独立 train held-out 选择（负结果，保留上游默认）](results/llama32_1b_a4_beta_holdout.md)
+- [局部 Hadamard + shared128 LDLQ W4/W4KV4/W4A4/W4A4KV4 递进](results/llama32_1b_paper_hadamard_w4a4kv4_progression.md)
 - [固定作者代码与局部 Hadamard A4 语义对齐](docs/upstream_activation_alignment.md)
 - [A4 beta 校准协议](docs/activation_beta_calibration.md)
 - [简历证据边界](docs/resume_evidence.md)

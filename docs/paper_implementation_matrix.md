@@ -17,7 +17,7 @@
 
 1. 正式 LLM 权重 beta 使用项目扩展候选，不等于固定上游默认 `[4.0, 5.5, 7.0, 18.0]`，也不等于论文合成实验的完整 `0.5×{1,...,50}` 网格；
 2. 论文 §4.3 的局部 `W H` 权重与在线 `X H` 输入路径已经接入 Llama-3.2-1B W4、LDLQ Hessian 坐标变换和 NQMC 回载；尚未与固定作者代码逐层逐张量核对，也未覆盖非 2 次幂 Kronecker 路径；
-3. 当前 A4 已与新的局部 Hadamard + shared128 LDLQ W4 路径组合并完成完整 PPL；KV4 尚未组合。与固定上游的 `kron_h_ip`、无 dither try-all 路径及逐层 beta 优化仍需逐项对齐；
+3. A4 与 KV4 均已和局部 Hadamard + shared128 LDLQ W4 路径组合，完整 W4/W4KV4/W4A4/W4A4KV4 PPL 为 10.076729/10.524110/10.688878/11.231160。与固定上游的非 2 次幂 `kron_h_ip` 和分布式层路径仍需逐项对齐；
 4. QA-LDLQ 公式已实现并完成 Hessian 尺度审计，但在本地 Llama-3.2-1B 配置上没有复现论文增益；
 5. NQMC 提供真实低比特权重存储，运行时仍反量化到 BF16；A/KV 没有 packed 常驻格式或低比特 kernel。
 
@@ -34,10 +34,10 @@
 | multi-beta First-beta | PDF p.20 Appendix F | 作者 README 称 DP 脚本“will be added”；固定 commit 无完整 DP 入口 | `nestquant/core/beta_search.py` | 项目独立实现并与穷举核对 | 不能宣称逐行复用了作者 DP 代码 |
 | 合成实验 beta 网格 | PDF p.9 §5.1：`0.5×{1,...,50}` 中选 k 个 | 固定代码允许外部传入 betas | 合成实验支持该尺度映射 | 基本对齐 | 论文码率公式符号存在疑点，项目同时保留原式与 Shannon 解释 |
 | LLM 权重 beta | PDF p.10：q=14、k=4；正文不足以确认每层值 | `parallel/w_quant.py` 默认 `[4.0,5.5,7.0,18.0]` | 正式候选含 `[3.5,4.5,6.0,14.5,25.0,40.0,50.0,100.0]`；100 只用于 QA outlier | 项目扩展 | 需区分 upstream default、paper grid 与 project extended |
-| 权重—激活匹配旋转 | PDF p.7 §4.3：每个 Linear 使用匹配 H | `parallel/w_quant.py` 与 `parallel/quant_utils.py` 使用 `kron_h_ip` | `models/rotated_linear.py` 保存 `W H` 并在前向在线计算 `X H`；W4、LDLQ、A4 坐标和 NQMC 元数据已接入 | Llama-3.2-1B W4 与 W4A4 完整 PPL 已验证 | 需与固定上游按层比较，并组合 KV4 |
+| 权重—激活匹配旋转 | PDF p.7 §4.3：每个 Linear 使用匹配 H | `parallel/w_quant.py` 与 `parallel/quant_utils.py` 使用 `kron_h_ip` | `models/rotated_linear.py` 保存 `W H` 并在前向在线计算 `X H`；W4、LDLQ、A4/KV4 和 NQMC 元数据已接入 | Llama-3.2-1B 四档完整 PPL 已验证 | 需继续核对非 2 次幂与分布式路径 |
 | 非 2 次幂旋转 | PDF p.7 §4.3：`H1⊗H2`；p.21-22 Table 7 | `hadamard.py::kron_h_ip` 对固定模型尺寸提供硬编码 Hadamard | 当前核心旋转只支持 2 次幂；Llama-3.2-1B 的 2048/8192 输入维度均可覆盖 | 当前目标模型不阻塞 | 若扩展到论文 Llama-3-8B 的 14336 维 down projection，需实现并核对 Kronecker 路径 |
 | Q/K 旋转与 K/V 量化 | PDF p.8-9 §4.3/Fig.4 | `parallel/model.py` post-RoPE 对 Q/K 做 head-dim Hadamard，量化 K/V | `evaluation/kv_cache.py` | 质量路径已实现 | 需做固定上游逐张量等价测试；当前 cache 存浮点重构值 |
-| 激活量化 | PDF p.7-9：Linear 前旋转并量化 | `parallel/quant_utils.py` forward-pre-hook | `evaluation/activation_quantization.py`；普通坐标往返与局部 `X H` 直接 A4 | 局部坐标 A4 完整 PPL 10.688878 | 固定全局 beta 的 overload 为 5.4411%；需校准逐层 beta，并继续核对 dither 与列并行分类 |
+| 激活量化 | PDF p.7-9：Linear 前旋转并量化 | `parallel/quant_utils.py` forward-pre-hook | `evaluation/activation_quantization.py`；普通坐标往返与局部 `X H` 直接 A4 | 局部 A4 完整 PPL 10.688878；与 KV4 组合为 11.231160 | held-out 校准未超过上游默认；仍需核对列并行路径 |
 | A/K/V 默认 beta | 论文正文确认逐层 DP，正文未给 CLI 默认值 | `parallel/ppl.py`：A `[3.47,4.74,6.90,18.11]`，K `[3.50,4.58,6.47,17.06]`，V `[3.53,5.59,9.62,29.03]` | 版本化 KV beta 配置与项目 A beta 常量 | 部分对齐 | 配置需标注 upstream CLI default 或项目校准 |
 | block-LDLQ | PDF p.8 §4.3、Appendix B | `coder.py::block_LDL`、`encode_matrix_LDLQ_*` | `core/ldlq.py`、分组 Hessian store | 已实现并完成 shared128 结果 | 归一化口径需持续记录 |
 | QA-LDLQ | PDF p.8-9 §4.5，`W~=WH(H+J)^-1` | `parallel/quant_utils.py` 的 `eps` 调整；`parallel/err.py` | QA 权重调整、激活二阶矩与尺度审计 | 公式实现完成，结果为负 | 本地未复现论文增益 |
@@ -53,10 +53,10 @@
 后续按下面顺序推进：
 
 1. 已完成完整 288,627-token WikiText-2 PPL：同协议普通 W4 为 11.054059，局部 Hadamard W4 为 10.917094；
-2. 已与 shared128 LDLQ 组合，并完成 `X -> XH -> A4 -> Linear(WH)` 完整 PPL 10.688878；下一步校准逐层 beta，降低当前 5.4411% overload；
+2. 已与 shared128 LDLQ 组合，并完成 W4/W4KV4/W4A4/W4A4KV4 完整递进；逐层 beta 校准在独立 train held-out 上未超过上游默认，因此未推广；
 3. 对固定上游和本项目的量化前张量、旋转后张量、重构张量逐层比较；
 4. 扩展到非 2 次幂模型时，实现并核对 `H1⊗H2` Kronecker 路径；
-5. Q/K 的 post-RoPE 旋转、KV4 和低比特 kernel 保持为独立验证项。
+5. Q/K 的 post-RoPE 旋转与 KV4 已组合验证；packed KV cache 和低比特 kernel 仍保持为独立工程项。
 
 这条路线先解决 NestQuant 自身的语义一致性，不把 QuaRot 的全模型变换结构强加给 NestQuant。
 
