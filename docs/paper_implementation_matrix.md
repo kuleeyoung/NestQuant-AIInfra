@@ -27,7 +27,7 @@
 
 | 模块 | 论文依据 | 固定作者代码 | 本项目代码 | 状态 | 剩余差距 |
 |---|---|---|---|---|---|
-| E8 最近点 | PDF p.7 Algorithm 1/2；Appendix C | `e8.py` | `nestquant/core/lattice.py` | 已实现并用穷举/格点性质测试 | 性能 kernel 未复现 |
+| E8 最近点 | PDF p.7 Algorithm 1/2；Appendix C | `e8.py` | `nestquant/core/lattice.py` | 固定上游边界 tie-break 已逐阶段对齐；NQRT v3 版本化 | 性能 kernel 未复现 |
 | 嵌套 Voronoi codec | PDF p.7 §4.2，`Λ/qΛ` residue 与 overload | `coder.py::encode/decode` | `nestquant/core/codec.py` | 已实现；q=2 全 residue 往返 | 上游 CUDA 性能不在当前范围 |
 | L2 行归一化与 8 维分块 | PDF p.7 Algorithm 3 | `coder.py::encode_matrix*` | `nestquant/core/quantizer.py` | 已实现 | 需继续区分不同实验的 dither 语义 |
 | 减性 dither | 论文未在 LLM 每条路径完整展开 | `e8.py::generate_dither`；矩阵编码默认开启，`parallel/quant_utils.py` 的 LLM quantsim 明确关闭 | codec 与 checkpoint 保存共享 realization/CPU RNG 状态 | 部分对齐 | 论文表格具体路径是否使用 dither，无法仅由正文确认 |

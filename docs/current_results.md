@@ -2,6 +2,8 @@
 
 本页是项目结果的唯一推荐入口。它不覆盖历史实验，而是说明当前应引用哪一组结果。历史文档保留当时的代码、协议和结论，不应用其中较旧的数字替代当前正式结果。
 
+> Codec 版本说明：现有完整模型结果由 NQRT v2 的 `e8_legacy_integer_coset_tie_v1` 生成，并已通过兼容回载复现。HEAD 已对齐固定作者的半整数 coset tie-break，新导出使用 NQRT v3 `e8_upstream_half_coset_tie_v1`。在 v3 最佳 checkpoint 的完整 PPL 完成前，不把历史数字改写成严格上游 codec 语义结果。详见[固定上游对齐报告](../results/fixed_upstream_codec_alignment.md)。
+
 ## 当前主协议
 
 - 模型：`meta-llama/Llama-3.2-1B` Base，revision `4e20de362430cd3b72f300e6b0f18e50e7166e08`；

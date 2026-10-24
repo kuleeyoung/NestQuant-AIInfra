@@ -1,0 +1,25 @@
+{
+  "status": "passed",
+  "upstream_repository": "https://github.com/cookiedoth/nestquant",
+  "upstream_commit": "6b269f84264afad990a09248d8eeb45d5f6248ff",
+  "local_commit": "cc44781d7995f679c57debaacc2dee0f4af2b0bc",
+  "case_count": 6,
+  "dimensions": [8, 16, 32],
+  "seeds": [58, 59],
+  "q": 14,
+  "all_codes_and_beta_indices_exact": true,
+  "maximum_linear_output_absolute_error": 2.86102294921875e-06,
+  "maximum_stage_relative_l2_error": 2.69172612445828e-07,
+  "raw_alignment_sha256": "606a9e02aa82cae6d227769f18f970b4247424bb22d40d0f69251bf38a10b9a1",
+  "legacy_checkpoint_compatibility": {
+    "checkpoint_sha256": "f594a20cd2f2abfed88fc1bdeabe8efb7a71e4bef5509933a74ab327a841f821",
+    "one_window_perplexity": 7.462738346366907,
+    "predicted_token_count": 2047,
+    "raw_manifest_sha256": "9ab45c362faca6bdc39f8050132bea426007929af817e54550a88dd6ca007c25"
+  },
+  "codec_semantics": {
+    "nqrt_v1_v2": "e8_legacy_integer_coset_tie_v1",
+    "nqrt_v3_and_new_quantization": "e8_upstream_half_coset_tie_v1"
+  },
+  "scope": "Power-of-two, single-process, float32 CPU quantsim alignment; no FairScale re_glue, non-power-of-two Kronecker, LDLQ, or CUDA kernel comparison."
+}

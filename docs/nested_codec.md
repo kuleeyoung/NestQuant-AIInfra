@@ -1,5 +1,7 @@
 # E8 嵌套 Voronoi 编解码
 
+当前默认 E8 边界语义与固定作者 commit 一致：整数与半整数 coset 等距时选择半整数 coset。新 NQRT v3 将该语义记录为 `e8_upstream_half_coset_tie_v1`；历史 v1/v2 使用兼容的 `e8_legacy_integer_coset_tie_v1`。相同 residue 在边界处可能解码为不同 representative，因此两种语义不能静默混用，详见[版本说明](codec_semantics.md)和[上游对齐结果](../results/fixed_upstream_codec_alignment.md)。
+
 对应论文 §4.1 第 7 页的 Definition 4.1、Algorithm 1 和 Algorithm 2。代码实现位置为 [nestquant/codec.py](../nestquant/codec.py)，E8 最近点 oracle 为 [nestquant/lattice.py](../nestquant/lattice.py)。
 
 ## 编码的直觉
