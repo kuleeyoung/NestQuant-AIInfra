@@ -13,7 +13,12 @@ import struct
 
 import torch
 
-from .codec import generate_e8_dither
+from .codec import (
+    CURRENT_CODEC_SEMANTICS,
+    LEGACY_CODEC_SEMANTICS,
+    UPSTREAM_CODEC_SEMANTICS,
+    generate_e8_dither,
+)
 from .packing import PackedNestQuantIndices, pack_nestquant_indices
 from .quantizer import QuantizedRows
 
@@ -21,7 +26,7 @@ from .quantizer import QuantizedRows
 _HEADER_V1 = struct.Struct("<4sBIQQQ")
 _HEADER_V2 = struct.Struct("<4sBBIQQQ")
 _MAGIC = b"NQRT"
-_VERSION = 2
+_VERSION = 3
 _DTYPE_TO_NAME = {
     torch.float16: "float16",
     torch.bfloat16: "bfloat16",
@@ -45,6 +50,7 @@ class PackedNestQuantTensor:
     dither_generator_state: bytes | None = None
     dither_generator_device: str | None = None
     dither_torch_version: str | None = None
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS
 
     @classmethod
     def from_quantized_rows(
@@ -68,6 +74,7 @@ class PackedNestQuantTensor:
                     dither_generator_state, quantized.codes.shape,
                     device=dither_generator_device, dtype=quantized.dither.dtype,
                     output_device=quantized.dither.device,
+                    codec_semantics=quantized.codec_semantics,
                 )
                 if not torch.equal(regenerated.cpu(), quantized.dither.detach().cpu()):
                     raise ValueError("generator state does not reproduce the quantizer dither tensor")
@@ -86,6 +93,7 @@ class PackedNestQuantTensor:
             dither_generator_device=dither_generator_device if dither_generator_state is not None else None,
             dither_torch_version=(dither_torch_version or str(torch.__version__))
             if dither_generator_state is not None else None,
+            codec_semantics=quantized.codec_semantics,
         )
 
     @property
@@ -97,6 +105,8 @@ class PackedNestQuantTensor:
                            self.betas, self.feature_count, self.output_dtype, self.dither)
         if self.dither is not None and self.dither_generator_state is not None:
             raise ValueError("store either dither values or a generator state, not both")
+        if self.codec_semantics not in {UPSTREAM_CODEC_SEMANTICS, LEGACY_CODEC_SEMANTICS}:
+            raise ValueError("unsupported tensor checkpoint codec semantics")
         if self.dither_generator_state is not None:
             _validate_generator_state(self.dither_generator_state, self.dither_generator_device)
         if self.dither is not None:
@@ -115,6 +125,7 @@ class PackedNestQuantTensor:
             "output_dtype": _DTYPE_TO_NAME[self.output_dtype],
             "dither_generator_device": self.dither_generator_device,
             "dither_torch_version": self.dither_torch_version,
+            "codec_semantics": self.codec_semantics,
         }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         indices_blob = self.indices.to_bytes()
         norms_blob = _tensor_to_bytes(self.row_norms)
@@ -139,7 +150,7 @@ class PackedNestQuantTensor:
             _, _, metadata_len, indices_len, norms_len, dither_len = _HEADER_V1.unpack_from(view)
             dither_mode = 1 if dither_len else 0
             offset = _HEADER_V1.size
-        elif version == 2:
+        elif version in (2, 3):
             if len(view) < _HEADER_V2.size:
                 raise ValueError("input is shorter than the v2 tensor checkpoint header")
             _, _, dither_mode, metadata_len, indices_len, norms_len, dither_len = _HEADER_V2.unpack_from(view)
@@ -191,11 +202,21 @@ class PackedNestQuantTensor:
         generator_state = dither_blob if dither_mode == 2 else None
         generator_device = metadata.get("dither_generator_device") if generator_state is not None else None
         torch_version = metadata.get("dither_torch_version") if generator_state is not None else None
+        codec_semantics = (
+            metadata.get("codec_semantics") if version >= 3 else LEGACY_CODEC_SEMANTICS
+        )
+        if codec_semantics not in {UPSTREAM_CODEC_SEMANTICS, LEGACY_CODEC_SEMANTICS}:
+            raise ValueError("unsupported tensor checkpoint codec semantics")
         if generator_state is not None:
             _validate_generator_state(generator_state, generator_device)
         _validate_metadata(name, indices, norms, betas, features, dtype, dither)
-        return cls(name, indices, norms, betas, features, dtype, dither,
-                   generator_state, generator_device, torch_version)
+        return cls(
+            tensor_name=name, indices=indices, row_norms=norms, betas=betas,
+            feature_count=features, output_dtype=dtype, dither=dither,
+            dither_generator_state=generator_state,
+            dither_generator_device=generator_device,
+            dither_torch_version=torch_version, codec_semantics=codec_semantics,
+        )
 
     def to_quantized_rows(self, *, device: torch.device | str = "cpu") -> QuantizedRows:
         codes, beta_indices = self.indices.unpack(device=device)
@@ -204,7 +225,7 @@ class PackedNestQuantTensor:
             dither = _generate_dither_from_state(
                 self.dither_generator_state, self.indices.shape,
                 device=self.dither_generator_device, dtype=self.output_dtype,
-                output_device="cpu",
+                output_device="cpu", codec_semantics=self.codec_semantics,
             ).to(device)
         return QuantizedRows(
             codes=codes,
@@ -215,6 +236,7 @@ class PackedNestQuantTensor:
             betas=self.betas,
             feature_count=self.feature_count,
             output_dtype=self.output_dtype,
+            codec_semantics=self.codec_semantics,
         )
 
     def dequantize(self, *, device: torch.device | str = "cpu") -> torch.Tensor:
@@ -256,7 +278,7 @@ def _validate_generator_state(state: bytes, device: str | None) -> None:
     if not isinstance(state, bytes) or not state:
         raise ValueError("dither generator state must be nonempty bytes")
     if device != "cpu":
-        raise ValueError("NQRT v2 currently supports portable CPU dither generator states only")
+        raise ValueError("NQRT v2/v3 supports portable CPU dither generator states only")
     generator = torch.Generator(device="cpu")
     try:
         generator.set_state(torch.frombuffer(bytearray(state), dtype=torch.uint8).clone())
@@ -267,9 +289,13 @@ def _validate_generator_state(state: bytes, device: str | None) -> None:
 def _generate_dither_from_state(
     state: bytes, shape: tuple[int, ...], *, device: str | None,
     dtype: torch.dtype, output_device: torch.device | str = "cpu",
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS,
 ) -> torch.Tensor:
     _validate_generator_state(state, device)
     generator = torch.Generator(device="cpu")
     generator.set_state(torch.frombuffer(bytearray(state), dtype=torch.uint8).clone())
     count = math.prod(shape[:-1])
-    return generate_e8_dither(count, generator, device=output_device, dtype=dtype).reshape(shape)
+    return generate_e8_dither(
+        count, generator, device=output_device, dtype=dtype,
+        codec_semantics=codec_semantics,
+    ).reshape(shape)

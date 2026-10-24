@@ -5,7 +5,9 @@ import unittest
 
 import torch
 
-from nestquant.core.codec import decode_nested, encode_nested, generate_e8_dither
+from nestquant.core.codec import (
+    LEGACY_CODEC_SEMANTICS, decode_nested, encode_nested, generate_e8_dither,
+)
 from nestquant.core.lattice import nearest_e8
 
 
@@ -15,14 +17,26 @@ class TestNestedE8Codec(unittest.TestCase):
         representatives = decode_nested(codes, q=2, dtype=torch.float64)
         recovered, overloaded = encode_nested(representatives, q=2)
         self.assertTrue(torch.equal(recovered, codes))
-        self.assertFalse(overloaded.any().item())
+        self.assertTrue(torch.equal(decode_nested(recovered, q=2, dtype=torch.float64), representatives))
 
         # Every reconstruction is itself an E8 point and lies in the q-scaled
         # Voronoi region (up to the deterministic tie policy at the boundary).
         closest, _ = nearest_e8(representatives)
         self.assertTrue(torch.equal(closest, representatives))
         scaled_closest, _ = nearest_e8(representatives / 2)
-        self.assertFalse((scaled_closest != 0).any().item())
+        self.assertTrue(torch.equal((scaled_closest != 0).any(dim=-1), overloaded))
+
+        # NQRT v1/v2 used the older boundary policy and must remain readable.
+        legacy_representatives = decode_nested(
+            codes, q=2, dtype=torch.float64,
+            codec_semantics=LEGACY_CODEC_SEMANTICS,
+        )
+        legacy_recovered, legacy_overloaded = encode_nested(
+            legacy_representatives, q=2,
+            codec_semantics=LEGACY_CODEC_SEMANTICS,
+        )
+        self.assertTrue(torch.equal(legacy_recovered, codes))
+        self.assertFalse(legacy_overloaded.any().item())
 
     def test_lattice_points_separated_by_q_lattice_share_a_code(self):
         # The rows below are E8 points; adding q times another E8 point must

@@ -1,5 +1,8 @@
 """Tests for the versioned fixed-width NestQuant index container."""
 
+import json
+import struct
+
 import unittest
 
 import torch
@@ -8,6 +11,7 @@ from nestquant.core.packing import PackedNestQuantIndices, pack_nestquant_indice
 from nestquant.core.codec import generate_e8_dither
 from nestquant.core.quantizer import quantize_rows
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
+from nestquant.core.codec import CURRENT_CODEC_SEMANTICS, LEGACY_CODEC_SEMANTICS
 
 
 class TestNestQuantPacking(unittest.TestCase):
@@ -83,10 +87,32 @@ class TestNestQuantPacking(unittest.TestCase):
         restored = PackedNestQuantTensor.from_bytes(packed.to_bytes())
 
         self.assertEqual(restored.tensor_name, "layer.proj.weight")
+        self.assertEqual(restored.codec_semantics, CURRENT_CODEC_SEMANTICS)
         self.assertEqual(restored.serialized_bytes, len(packed.to_bytes()))
         self.assertIsNone(restored.dither)
         self.assertTrue(torch.equal(restored.to_quantized_rows().row_norms, quantized.row_norms))
         self.assertTrue(torch.equal(restored.dequantize(), quantized.dequantize()))
+
+    def test_v2_tensor_checkpoint_defaults_to_legacy_codec_semantics(self):
+        weight = torch.randn((2, 8), generator=torch.Generator().manual_seed(117))
+        quantized = quantize_rows(weight, q=14, betas=(0.5, 1.0))
+        current = PackedNestQuantTensor.from_quantized_rows("legacy.weight", quantized).to_bytes()
+        header = struct.Struct("<4sBBIQQQ")
+        magic, _version, mode, metadata_len, indices_len, norms_len, dither_len = (
+            header.unpack_from(current)
+        )
+        offset = header.size
+        metadata = json.loads(current[offset:offset + metadata_len].decode("utf-8"))
+        metadata.pop("codec_semantics")
+        legacy_metadata = json.dumps(
+            metadata, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        payload = current[offset + metadata_len:]
+        legacy = header.pack(
+            magic, 2, mode, len(legacy_metadata), indices_len, norms_len, dither_len
+        ) + legacy_metadata + payload
+        restored = PackedNestQuantTensor.from_bytes(legacy)
+        self.assertEqual(restored.codec_semantics, LEGACY_CODEC_SEMANTICS)
 
         bf16_weight = weight.to(torch.bfloat16)
         bf16_quantized = quantize_rows(bf16_weight, q=14, betas=(0.5, 0.75, 1.0, 1.25))

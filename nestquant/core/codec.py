@@ -12,6 +12,19 @@ import torch
 from .lattice import E8_DIMENSION, nearest_e8
 
 
+UPSTREAM_CODEC_SEMANTICS = "e8_upstream_half_coset_tie_v1"
+LEGACY_CODEC_SEMANTICS = "e8_legacy_integer_coset_tie_v1"
+CURRENT_CODEC_SEMANTICS = UPSTREAM_CODEC_SEMANTICS
+
+
+def _tie_break(codec_semantics: str) -> str:
+    if codec_semantics == UPSTREAM_CODEC_SEMANTICS:
+        return "upstream_half"
+    if codec_semantics == LEGACY_CODEC_SEMANTICS:
+        return "legacy_integer"
+    raise ValueError(f"unsupported codec semantics: {codec_semantics}")
+
+
 _GENERATOR = torch.tensor(
     [
         [2, -1, 0, 0, 0, 0, 0, 0.5],
@@ -36,7 +49,8 @@ def _validate_q(q: int) -> None:
 
 
 def encode_nested(
-    x: torch.Tensor, q: int, *, dither: torch.Tensor | None = None
+    x: torch.Tensor, q: int, *, dither: torch.Tensor | None = None,
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Encode vectors as E8 lattice coordinates modulo ``q``.
 
@@ -66,7 +80,8 @@ def encode_nested(
 
     _validate_dither(x, dither)
     shifted = x if dither is None else x + dither
-    lattice_point, _ = nearest_e8(shifted)
+    tie_break = _tie_break(codec_semantics)
+    lattice_point, _ = nearest_e8(shifted, tie_break=tie_break)
     generator = _GENERATOR.to(device=x.device, dtype=x.dtype)
     inverse = _GENERATOR_INVERSE.to(device=x.device, dtype=x.dtype)
     coordinates_float = lattice_point @ inverse.T
@@ -78,7 +93,9 @@ def encode_nested(
 
     code = torch.remainder(coordinates.to(torch.int64), q)
     unshifted_lattice_point = lattice_point if dither is None else lattice_point - dither
-    scaled_nearest, _ = nearest_e8(unshifted_lattice_point / q)
+    scaled_nearest, _ = nearest_e8(
+        unshifted_lattice_point / q, tie_break=tie_break
+    )
     overloaded = (scaled_nearest != 0).any(dim=-1)
     return code, overloaded
 
@@ -89,6 +106,7 @@ def decode_nested(
     *,
     dtype: torch.dtype = torch.float32,
     dither: torch.Tensor | None = None,
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS,
 ) -> torch.Tensor:
     """Decode E8 coordinates modulo ``q`` to the minimum-energy representative.
 
@@ -116,7 +134,9 @@ def decode_nested(
         if not torch.isfinite(dither).all().item():
             raise ValueError("dither must contain only finite values")
         coset_point = coset_point - dither
-    nearest_to_scaled, _ = nearest_e8(coset_point / q)
+    nearest_to_scaled, _ = nearest_e8(
+        coset_point / q, tie_break=_tie_break(codec_semantics)
+    )
     return coset_point - q * nearest_to_scaled
 
 
@@ -126,6 +146,7 @@ def generate_e8_dither(
     *,
     device: torch.device | str,
     dtype: torch.dtype = torch.float32,
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS,
 ) -> torch.Tensor:
     """Generate subtractive dither as in the author reference implementation.
 
@@ -146,7 +167,7 @@ def generate_e8_dither(
                          device=generator_device, dtype=dtype) * 2.0
     if uniform.device != target_device:
         uniform = uniform.to(target_device)
-    nearest, _ = nearest_e8(uniform)
+    nearest, _ = nearest_e8(uniform, tie_break=_tie_break(codec_semantics))
     return uniform - nearest
 
 

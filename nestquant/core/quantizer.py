@@ -12,7 +12,7 @@ from typing import Sequence
 
 import torch
 
-from .codec import decode_nested, encode_nested
+from .codec import CURRENT_CODEC_SEMANTICS, decode_nested, encode_nested
 from .lattice import E8_DIMENSION
 from .ldlq import block_unit_lower_ldl, ldlq_quantize_blocks
 
@@ -33,6 +33,7 @@ class QuantizedRows:
     betas: tuple[float, ...]
     feature_count: int
     output_dtype: torch.dtype
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS
     overloaded: torch.Tensor | None = None
 
     def dequantize(self) -> torch.Tensor:
@@ -43,6 +44,7 @@ class QuantizedRows:
         reconstructed_blocks = decode_nested(
             self.codes.reshape(-1, E8_DIMENSION), self.q, dtype=self.output_dtype,
             dither=None if self.dither is None else self.dither.reshape(-1, E8_DIMENSION),
+            codec_semantics=self.codec_semantics,
         ).reshape(rows, blocks, E8_DIMENSION)
         normalized = (reconstructed_blocks * selected_betas.unsqueeze(-1)).reshape(rows, self.feature_count)
         scale = self.row_norms / math.sqrt(self.feature_count)
@@ -59,6 +61,7 @@ class QuantizedBlocks:
     q: int
     betas: tuple[float, ...]
     output_dtype: torch.dtype
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS
 
     def dequantize(self) -> torch.Tensor:
         beta_table = torch.tensor(self.betas, device=self.codes.device, dtype=self.output_dtype)
@@ -66,6 +69,7 @@ class QuantizedBlocks:
         reconstructed = decode_nested(
             self.codes.reshape(-1, E8_DIMENSION), self.q, dtype=self.output_dtype,
             dither=None if self.dither is None else self.dither.reshape(-1, E8_DIMENSION),
+            codec_semantics=self.codec_semantics,
         ).reshape_as(self.codes)
         return reconstructed * selected.unsqueeze(-1)
 

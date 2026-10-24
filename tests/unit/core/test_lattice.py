@@ -26,6 +26,12 @@ def brute_force_distance(x: torch.Tensor) -> float:
 
 
 class TestNearestE8(unittest.TestCase):
+    def test_equal_coset_distance_uses_upstream_half_integer_tie_break(self):
+        boundary = torch.full((1, E8_DIMENSION), 0.25, dtype=torch.float32)
+        point, distance = nearest_e8(boundary)
+        torch.testing.assert_close(point, torch.full_like(boundary, 0.5))
+        self.assertAlmostEqual(float(distance.item()), 0.5)
+
     def test_exact_points_from_both_cosets_are_preserved(self):
         x = torch.tensor(
             [[1, 1, 0, 0, 0, 0, 0, 0],

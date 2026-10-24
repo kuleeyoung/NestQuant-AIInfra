@@ -34,7 +34,9 @@ def _nearest_even_sum_integer(points: torch.Tensor) -> torch.Tensor:
     return rounded + correction * odd_sum.to(points.dtype)
 
 
-def nearest_e8(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def nearest_e8(
+    x: torch.Tensor, *, tie_break: str = "upstream_half"
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Find the nearest E8 point for every vector in ``x``.
 
     Args:
@@ -57,6 +59,8 @@ def nearest_e8(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         raise ValueError(f"the final dimension of x must be {E8_DIMENSION}")
     if not torch.isfinite(x).all().item():
         raise ValueError("x must contain only finite values")
+    if tie_break not in {"upstream_half", "legacy_integer"}:
+        raise ValueError("unsupported E8 coset tie break")
 
     half = torch.full((), 0.5, dtype=x.dtype, device=x.device)
     integer_coset = _nearest_even_sum_integer(x)
@@ -64,6 +68,14 @@ def nearest_e8(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 
     integer_error = (x - integer_coset).square().sum(dim=-1)
     half_error = (x - half_integer_coset).square().sum(dim=-1)
-    choose_integer = integer_error <= half_error
+    # Match the fixed upstream ``encode_e8_fast`` tie policy: when the two E8
+    # cosets have exactly equal distance, choose the half-integer coset.
+    # This matters during nested decoding because residue representatives can
+    # land exactly on a Voronoi boundary after division by q.
+    choose_integer = (
+        integer_error < half_error
+        if tie_break == "upstream_half"
+        else integer_error <= half_error
+    )
     point = torch.where(choose_integer.unsqueeze(-1), integer_coset, half_integer_coset)
     return point, torch.minimum(integer_error, half_error)
