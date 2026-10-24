@@ -5,13 +5,60 @@ import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
 from nestquant.evaluation.activation_quantization import (
+    ActivationBlockSampler,
     ActivationQuantizationStats,
+    attach_activation_calibration,
     enable_activation_quantization,
 )
 from nestquant.models.rotated_linear import convert_linears_to_hadamard_coordinates_
 
 
 class TestActivationQuantization(unittest.TestCase):
+    def test_calibration_sampler_builds_all_three_profiles(self):
+        sampler = ActivationBlockSampler(calibration_chunks=2, sample_limit_per_module=16)
+        generator = torch.Generator().manual_seed(91)
+        names = (
+            "model.layers.0.self_attn.q_proj",
+            "model.layers.1.self_attn.q_proj",
+            "model.layers.0.mlp.down_proj",
+        )
+        for _ in range(2):
+            for name in names:
+                sampler.record(name, torch.randn(2, 4, 16, generator=generator))
+        profiles = sampler.search_profiles(
+            q=14,
+            candidate_betas=(0.2, 0.4, 0.8, 1.6, 4.0),
+            selected_beta_count=2,
+            device="cpu",
+            rows_per_chunk=7,
+        )
+        self.assertEqual(set(profiles["module"]), set(names))
+        self.assertEqual(set(profiles["projection_type"]), {"q_proj", "down_proj"})
+        self.assertEqual(profiles["global"]["global"]["module_count"], 3)
+        self.assertTrue(all(
+            len(record["beta_values"]) == 2 for record in profiles["module"].values()
+        ))
+
+    def test_calibration_hook_observes_without_changing_output(self):
+        config = LlamaConfig(
+            vocab_size=32, hidden_size=16, intermediate_size=32,
+            num_hidden_layers=1, num_attention_heads=2,
+            num_key_value_heads=1, max_position_embeddings=32,
+        )
+        model = LlamaForCausalLM(config).eval()
+        sampler = ActivationBlockSampler(calibration_chunks=1, sample_limit_per_module=8)
+        tokens = torch.tensor([[1, 2, 3, 4]])
+        with torch.inference_mode():
+            expected = model(tokens).logits
+        handles = attach_activation_calibration(model, sampler)
+        with torch.inference_mode():
+            actual = model(tokens).logits
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+        self.assertEqual(len(handles), 7)
+        self.assertEqual(len(sampler._samples), 7)
+        for handle in handles:
+            handle.remove()
+
     def test_attaches_only_to_seven_layer_projection_types(self):
         config = LlamaConfig(
             vocab_size=32, hidden_size=16, intermediate_size=32,
@@ -49,6 +96,36 @@ class TestActivationQuantization(unittest.TestCase):
                 torch.nn.Sequential(torch.nn.Linear(8, 8)),
                 q=14, betas=(0.25, 0.5),
             )
+
+    def test_per_module_betas_do_not_share_incompatible_cached_reconstruction(self):
+        config = LlamaConfig(
+            vocab_size=32, hidden_size=16, intermediate_size=32,
+            num_hidden_layers=1, num_attention_heads=2,
+            num_key_value_heads=1, max_position_embeddings=32,
+        )
+        model = LlamaForCausalLM(config).eval()
+        names = [
+            name for name, _ in model.named_modules()
+            if name.endswith((
+                ".self_attn.q_proj", ".self_attn.k_proj", ".self_attn.v_proj",
+                ".self_attn.o_proj", ".mlp.gate_proj", ".mlp.up_proj", ".mlp.down_proj",
+            ))
+        ]
+        module_betas = {
+            name: ((0.2, 0.4) if name.endswith("q_proj") else (0.6, 1.2))
+            for name in names
+        }
+        stats, handles = enable_activation_quantization(
+            model, q=14, betas=(0.25, 0.5), module_betas=module_betas,
+            rows_per_chunk=8,
+        )
+        with torch.inference_mode():
+            model(torch.tensor([[1, 2, 3, 4]]))
+        summary = stats.summary()["modules"]
+        self.assertEqual(summary["model.layers.0.self_attn.q_proj"]["betas"], [0.2, 0.4])
+        self.assertEqual(summary["model.layers.0.self_attn.k_proj"]["betas"], [0.6, 1.2])
+        for handle in handles:
+            handle.remove()
 
     def test_local_hadamard_a4_matches_upstream_round_trip_coordinates(self):
         class Projection(torch.nn.Module):

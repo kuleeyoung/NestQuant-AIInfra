@@ -66,6 +66,10 @@ def main() -> None:
     parser.add_argument("--a4", action="store_true",
                         help="fake-quantize Llama attention/MLP projection inputs")
     parser.add_argument("--act-rows-per-chunk", type=int, default=4096)
+    parser.add_argument("--activation-beta-config", type=Path, default=None,
+                        help="calibrated A4 beta JSON produced by activation calibration")
+    parser.add_argument("--activation-beta-profile",
+                        choices=("global", "projection_type", "module"), default="module")
     parser.add_argument("--use-cache", action="store_true",
                         help="evaluate through an unquantized DynamicCache control path")
     parser.add_argument("--kv-rotation-control", action="store_true",
@@ -147,6 +151,8 @@ def main() -> None:
         raise ValueError("--kv4 requires only nestquant_w4 in --methods")
     if args.a4 and methods != ["nestquant_w4"]:
         raise ValueError("--a4 requires only nestquant_w4 in --methods")
+    if args.activation_beta_config is not None and not args.a4:
+        raise ValueError("--activation-beta-config requires --a4")
     if sum(bool(flag) for flag in (args.kv4, args.use_cache, args.kv_rotation_control)) > 1:
         raise ValueError("choose only one cache evaluation mode")
     if args.kv_rotation_control and methods != ["nestquant_w4"]:
@@ -158,6 +164,19 @@ def main() -> None:
 
     provisional_kv_betas = tuple(value / q for value in beta_coefficients[:beta_count])
     activation_betas = tuple(value / q for value in UPSTREAM_ACTIVATION_BETA_COEFFICIENTS)
+    activation_module_betas = None
+    activation_beta_metadata = None
+    if args.activation_beta_config is not None:
+        from ..evaluation.activation_beta_config import load_activation_beta_config
+
+        activation_module_betas, activation_beta_metadata = load_activation_beta_config(
+            args.activation_beta_config,
+            model_id=model_id,
+            model_revision=model_revision,
+            q=q,
+            selected_beta_count=beta_count,
+            profile=args.activation_beta_profile,
+        )
     kv_layer_betas = None
     kv_beta_metadata = None
     if args.kv4 and args.kv_beta_config is not None:
@@ -211,6 +230,14 @@ def main() -> None:
               "activation_beta_coefficients_project_scale": list(
                   UPSTREAM_ACTIVATION_BETA_COEFFICIENTS) if args.a4 else None,
               "activation_beta_values": list(activation_betas) if args.a4 else None,
+              "activation_beta_config": (
+                  str(args.activation_beta_config.resolve())
+                  if args.activation_beta_config is not None else None
+              ),
+              "activation_beta_profile": (
+                  args.activation_beta_profile
+                  if args.activation_beta_config is not None else None
+              ),
               "activation_rows_per_chunk": args.act_rows_per_chunk if args.a4 else None,
               "device": str(device), "model_dtype": model_dtype_name,
               "logit_loss_dtype": experiment["logit_loss_dtype"], "limit_chunks": args.limit_chunks,
@@ -394,14 +421,17 @@ def main() -> None:
                 activation_stats = ActivationQuantizationStats()
                 activation_stats, activation_handles = enable_activation_quantization(
                     model, q=q, betas=activation_betas,
+                    module_betas=activation_module_betas,
                     rows_per_chunk=args.act_rows_per_chunk, stats=activation_stats,
                 )
-                method_stats["activation_beta_configuration"] = {
-                    "status": "public_upstream_global_defaults",
-                    "coefficient_values": list(UPSTREAM_ACTIVATION_BETA_COEFFICIENTS),
-                    "beta_values": list(activation_betas),
-                    "upstream_file": "parallel/ppl.py",
-                }
+                method_stats["activation_beta_configuration"] = (
+                    activation_beta_metadata or {
+                        "status": "public_upstream_global_defaults",
+                        "coefficient_values": list(UPSTREAM_ACTIVATION_BETA_COEFFICIENTS),
+                        "beta_values": list(activation_betas),
+                        "upstream_file": "parallel/ppl.py",
+                    }
+                )
             if args.kv4:
                 from ..evaluation.kv_cache import (
                     KVQuantizationStats, NestQuantDynamicCache,

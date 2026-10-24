@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
+import hashlib
+import math
 from typing import Any
 import weakref
 
@@ -10,6 +13,7 @@ import torch
 
 from ..core.rotation import hadamard
 from ..core.runtime_quantization import fake_quantize_nestquant_rows
+from ..core.beta_search import build_candidate_tables, select_beta_subset
 from ..models.rotated_linear import HadamardRotatedLinear
 
 
@@ -22,6 +26,167 @@ LLAMA_PROJECTION_SUFFIXES = (
     ".mlp.up_proj",
     ".mlp.down_proj",
 )
+
+
+def projection_kind(module_name: str) -> str:
+    """Return the stable seven-way projection class for a supported module."""
+    for suffix in LLAMA_PROJECTION_SUFFIXES:
+        if module_name.endswith(suffix):
+            return suffix.rsplit(".", 1)[-1]
+    raise ValueError(f"unsupported Llama projection name: {module_name}")
+
+
+class ActivationBlockSampler:
+    """Bounded deterministic samples of normalized projection-input E8 blocks."""
+
+    def __init__(self, *, calibration_chunks: int, sample_limit_per_module: int) -> None:
+        if calibration_chunks < 1 or sample_limit_per_module < 1:
+            raise ValueError("calibration_chunks and sample limit must be positive")
+        self.calibration_chunks = calibration_chunks
+        self.sample_limit_per_module = sample_limit_per_module
+        self._samples: dict[str, list[torch.Tensor]] = defaultdict(list)
+        self._sample_counts: dict[str, int] = defaultdict(int)
+        self._seen_blocks: dict[str, int] = defaultdict(int)
+
+    def record(self, module_name: str, tensor: torch.Tensor) -> None:
+        if not module_name.endswith(LLAMA_PROJECTION_SUFFIXES):
+            raise ValueError(f"unsupported Llama projection name: {module_name}")
+        if tensor.shape[-1] % 8:
+            raise ValueError("activation feature dimension must be divisible by 8")
+        rows = tensor.detach().float().reshape(-1, tensor.shape[-1])
+        norms = torch.linalg.vector_norm(rows, dim=-1)
+        safe_norms = torch.where(norms > 0, norms, torch.ones_like(norms))
+        normalized = rows * (math.sqrt(rows.shape[-1]) / safe_norms).unsqueeze(-1)
+        normalized = torch.where(
+            norms.unsqueeze(-1) > 0, normalized, torch.zeros_like(normalized)
+        )
+        blocks = normalized.reshape(-1, 8)
+        self._seen_blocks[module_name] += blocks.shape[0]
+        remaining = self.sample_limit_per_module - self._sample_counts[module_name]
+        if remaining <= 0:
+            return
+        per_update = math.ceil(self.sample_limit_per_module / self.calibration_chunks)
+        take = min(remaining, per_update, blocks.shape[0])
+        indices = torch.div(
+            torch.arange(take, device=blocks.device, dtype=torch.int64) * blocks.shape[0],
+            take,
+            rounding_mode="floor",
+        )
+        self._samples[module_name].append(
+            blocks.index_select(0, indices).to(device="cpu", dtype=torch.float32)
+        )
+        self._sample_counts[module_name] += take
+
+    def search_profiles(
+        self,
+        *,
+        q: int,
+        candidate_betas: Sequence[float],
+        selected_beta_count: int,
+        device: torch.device | str,
+        rows_per_chunk: int = 8192,
+        progress_callback=None,
+    ) -> dict:
+        """Select global, projection-type, and per-module beta subsets."""
+        if rows_per_chunk < 1:
+            raise ValueError("rows_per_chunk must be positive")
+        if not self._samples:
+            raise ValueError("no activation samples were recorded")
+        beta_values = tuple(float(value) for value in candidate_betas)
+        samples = {
+            name: torch.cat(parts, dim=0) for name, parts in sorted(self._samples.items())
+        }
+        expected = set(self._seen_blocks)
+        if set(samples) != expected:
+            raise RuntimeError("one or more observed modules have no retained samples")
+
+        groups: list[tuple[str, str, list[str]]] = [
+            ("global", "global", list(samples)),
+        ]
+        by_kind: dict[str, list[str]] = defaultdict(list)
+        for name in samples:
+            by_kind[projection_kind(name)].append(name)
+        groups.extend(("projection_type", kind, names) for kind, names in sorted(by_kind.items()))
+        groups.extend(("module", name, [name]) for name in samples)
+
+        profiles: dict[str, dict] = {"global": {}, "projection_type": {}, "module": {}}
+        for completed, (scope, key, names) in enumerate(groups, 1):
+            vectors = torch.cat([samples[name] for name in names], dim=0)
+            mse_parts, overload_parts = [], []
+            for start in range(0, vectors.shape[0], rows_per_chunk):
+                batch = vectors[start:start + rows_per_chunk].to(device)
+                mse, overload = build_candidate_tables(batch, q, beta_values)
+                mse_parts.append(mse.cpu())
+                overload_parts.append(overload.cpu())
+            mse = torch.cat(mse_parts)
+            overload = torch.cat(overload_parts)
+            selected = select_beta_subset(
+                beta_values, mse, overload, selected_beta_count
+            )
+            indices = list(selected.beta_indices)
+            selected_overload = overload[:, indices]
+            first_fitting = (~selected_overload).to(torch.int64).argmax(dim=1)
+            assignments = torch.tensor(indices, dtype=torch.int64)[first_fitting]
+            total_error = float(mse[torch.arange(mse.shape[0]), assignments].sum().item())
+            record = {
+                "beta_indices": indices,
+                "beta_values": list(selected.beta_values),
+                "sample_count": vectors.shape[0],
+                "module_count": len(names),
+                "sample_sha256": hashlib.sha256(
+                    vectors.contiguous().numpy().tobytes()
+                ).hexdigest(),
+                "first_beta_total_squared_error": total_error,
+                "overload_count_by_candidate": overload.sum(dim=0).tolist(),
+            }
+            profiles[scope][key] = record
+            if progress_callback is not None:
+                progress_callback({
+                    "completed": completed,
+                    "total": len(groups),
+                    "scope": scope,
+                    "key": key,
+                    "beta_values": record["beta_values"],
+                })
+        profiles["sampling"] = {
+            "sample_limit_per_module": self.sample_limit_per_module,
+            "module_count": len(samples),
+            "sample_count_by_module": {
+                name: int(value.shape[0]) for name, value in samples.items()
+            },
+            "seen_block_count_by_module": dict(sorted(self._seen_blocks.items())),
+        }
+        return profiles
+
+
+def attach_activation_calibration(
+    model, sampler: ActivationBlockSampler
+) -> list[torch.utils.hooks.RemovableHandle]:
+    """Observe projection inputs in their A4 coordinates without changing them."""
+    handles = []
+    matched = []
+    for name, module in model.named_modules():
+        if not name.endswith(LLAMA_PROJECTION_SUFFIXES):
+            continue
+        if not isinstance(module, (torch.nn.Linear, HadamardRotatedLinear)):
+            raise TypeError(f"expected Linear or HadamardRotatedLinear at {name}")
+        matched.append(name)
+        if isinstance(module, HadamardRotatedLinear):
+            def rotated_hook(_module, _source, rotated, *, module_name=name):
+                sampler.record(module_name, rotated)
+                return None
+
+            handles.append(module.register_rotated_input_hook(rotated_hook))
+        else:
+            def hook(_module, inputs, *, module_name=name):
+                if not inputs or not isinstance(inputs[0], torch.Tensor):
+                    raise TypeError(f"{module_name} must receive a tensor as its first input")
+                sampler.record(module_name, hadamard(inputs[0].float()))
+
+            handles.append(module.register_forward_pre_hook(hook))
+    if not matched:
+        raise ValueError("no supported Llama attention/MLP projection modules were found")
+    return handles
 
 
 class ActivationQuantizationStats:
@@ -124,6 +289,7 @@ def enable_activation_quantization(
     *,
     q: int,
     betas: Sequence[float],
+    module_betas: Mapping[str, Sequence[float]] | None = None,
     rows_per_chunk: int = 4096,
     stats: ActivationQuantizationStats | None = None,
 ) -> tuple[ActivationQuantizationStats, list[torch.utils.hooks.RemovableHandle]]:
@@ -135,6 +301,10 @@ def enable_activation_quantization(
     producing the same dot product coordinates.
     """
     accumulator = stats if stats is not None else ActivationQuantizationStats()
+    configured_betas = {
+        str(name): tuple(float(value) for value in values)
+        for name, values in (module_betas or {}).items()
+    }
     handles = []
     matched = []
     # Llama passes the same tensor object to q/k/v and to gate/up.  The
@@ -142,7 +312,7 @@ def enable_activation_quantization(
     # that source tensor is alive removes duplicate work without changing the
     # simulated value.  A weak reference prevents cross-forward reuse when an
     # allocator later recycles the same Python id or storage address.
-    cache: dict[tuple[int, str], tuple[weakref.ReferenceType, torch.Tensor, dict]] = {}
+    cache: dict[tuple[int, str, tuple[float, ...]], tuple[weakref.ReferenceType, torch.Tensor, dict]] = {}
     for name, module in model.named_modules():
         if not name.endswith(LLAMA_PROJECTION_SUFFIXES):
             continue
@@ -152,13 +322,16 @@ def enable_activation_quantization(
 
         if isinstance(module, HadamardRotatedLinear):
             def rotated_hook(_module, source, rotated, *, module_name=name):
-                key = (id(source), "local_hadamard_input")
+                active_betas = configured_betas.get(module_name, tuple(betas))
+                key = (id(source), "local_hadamard_input", active_betas)
                 cached = cache.get(key)
                 if cached is not None and cached[0]() is source:
                     restored, quant_stats = cached[1], cached[2]
                 else:
                     restored, quant_stats = fake_quantize_nestquant_rows(
-                        rotated.float(), q=q, betas=betas, rows_per_chunk=rows_per_chunk,
+                        rotated.float(), q=q,
+                        betas=active_betas,
+                        rows_per_chunk=rows_per_chunk,
                     )
                     restored = restored.to(dtype=rotated.dtype)
 
@@ -180,14 +353,16 @@ def enable_activation_quantization(
             if not inputs or not isinstance(inputs[0], torch.Tensor):
                 raise TypeError(f"{module_name} must receive a tensor as its first input")
             source = inputs[0]
-            key = (id(source), "original_input_after_hadamard_round_trip")
+            active_betas = configured_betas.get(module_name, tuple(betas))
+            key = (id(source), "original_input_after_hadamard_round_trip", active_betas)
             cached = cache.get(key)
             if cached is not None and cached[0]() is source:
                 restored, quant_stats = cached[1], cached[2]
             else:
                 rotated = hadamard(source.float())
                 quantized, quant_stats = fake_quantize_nestquant_rows(
-                    rotated, q=q, betas=betas, rows_per_chunk=rows_per_chunk,
+                    rotated, q=q, betas=active_betas,
+                    rows_per_chunk=rows_per_chunk,
                 )
                 restored = hadamard(quantized.float()).to(dtype=source.dtype)
 
@@ -206,4 +381,10 @@ def enable_activation_quantization(
         handles.append(module.register_forward_pre_hook(hook))
     if not matched:
         raise ValueError("no supported Llama attention/MLP projection modules were found")
+    if configured_betas and set(configured_betas) != set(matched):
+        missing = sorted(set(matched) - set(configured_betas))
+        extra = sorted(set(configured_betas) - set(matched))
+        raise ValueError(
+            f"activation beta module set mismatch: missing={missing[:3]} extra={extra[:3]}"
+        )
     return accumulator, handles
