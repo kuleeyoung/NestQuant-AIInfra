@@ -59,3 +59,13 @@ python scripts/benchmark_nqmc_selective_decode.py model.nqmc \
 ```
 
 benchmark 默认跳过全 payload checksum，以免把一次 O(file size) 扫描混入单 record 延迟；需要端到端可信文件校验时显式添加 `--verify-checksum`。该 benchmark 只测 seek/read 和独立 tensor dequantization，不含 GEMM、层调度或推理。
+
+分块 BF16 解码：
+
+```python
+reader.decode_tensor(
+    name, device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=128
+)
+```
+
+分块路径只解包目标行的 residue/beta ID，并把 float32 codec 结果立即写入 BF16 输出。generator-state dither 为保持历史 NQRT bit-exact 语义，仍按原始完整 shape 在 CPU 重放，再按行传输；详见[benchmark 与正确性报告](../results/llama32_1b_nqrt3_chunked_bf16_decode.md)。

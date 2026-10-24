@@ -14,6 +14,7 @@
 - 在同一 NQRT v3 checkpoint 上完成 W4/W4KV4/W4A4/W4A4KV4 全量矩阵，PPL 为 10.076886/10.515783/10.689190/11.232054；用 NLL 分解确认 A4 损失大于 KV4，联合交互项为 +0.006906。A4/KV4 仍是浮点重建质量仿真，不宣称低比特 kernel 加速。
 - 实现 bounded-memory NQMC inspector，在不加载模型或反量化权重的情况下，对 1.04 GB checkpoint 完成 payload/file SHA、146 个唯一 record 和 112 个 NQRT v3 量化记录审计；实测量化 record 码率为 4.267428 bit/parameter，并明确整体 42.2623% BF16 逻辑载荷比例受 dense tied embedding 影响。
 - 为 NQMC 增加 O(1) 按 tensor 名称/alias 定位与选择性 CUDA 解码；在独立进程中测得 2048×2048 q_proj 和 2048×8192 down_proj 的 record read/decode mean 为 5.87/71.56 ms 与 27.94/337.43 ms，并据峰值内存定位当前 float32 E8 解码中间张量为后续 fused runtime 的主要瓶颈。
+- 实现 row-range packed bit 解包和 bit-exact 分块 BF16 解码；在真实 down_proj 上保持与 full-float32→BF16 逐元素一致，将单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB（-85.99%），解码均值 337.43→338.25 ms。该结果只属于 standalone decode，不外推为端到端推理收益。
 - 已实现校准激活二阶统计、8×8 block-LDL 分解、E8 块误差反馈和分组 Hessian 惰性加载；在相同源码与测试 token 下，16/64 个 WikiText-2 train 序列校准的 LDLQ 将 Llama-3.2-1B NestQuant W4 PPL 从 11.2026 分别降至 10.3237/10.2761，train-64 消除了 64.09% 的 BF16 PPL 差距。
 - 已将 train64 block-LDLQ 的最终 code、beta index、行范数和 dither 状态写入 NQMC：实测文件 659,281,364 B、4.267043 bit/量化参数；无需 4.77 GiB Hessian 即可独立回载，完整 PPL 与内存量化精确一致为 10.276133。
 - 已实现旋转坐标下的 `H_rot=R^T H R` 并完成同源码两种子消融：seed 123/124 的旋转+train64 block-LDLQ PPL 为 10.1367/10.1215，均优于对应纯旋转 11.0048/11.1479 和仅 LDLQ 10.2761，相对普通 W4 分别消除 73.74%/74.78% 的 BF16 差距。

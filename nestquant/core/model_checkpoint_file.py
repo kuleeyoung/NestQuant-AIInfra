@@ -154,13 +154,25 @@ class NQMCFileReader:
         return entry, self.read_entry(entry)
 
     def decode_tensor(
-        self, name: str, *, device: torch.device | str = "cpu"
+        self,
+        name: str,
+        *,
+        device: torch.device | str = "cpu",
+        output_dtype: torch.dtype | None = None,
+        rows_per_chunk: int | None = None,
     ) -> torch.Tensor:
         """Read and decode exactly one named tensor, resolving tied aliases."""
         _entry, record = self.read_named_record(name)
         if isinstance(record, PackedNestQuantTensor):
-            return record.dequantize(device=device)
-        return record.to(device)
+            if rows_per_chunk is not None:
+                return record.dequantize_chunked(
+                    device=device, output_dtype=output_dtype,
+                    rows_per_chunk=rows_per_chunk,
+                )
+            value = record.dequantize(device=device)
+        else:
+            value = record.to(device)
+        return value if output_dtype is None else value.to(output_dtype)
 
     def read_entry(self, entry: NQMCEntry) -> torch.Tensor | PackedNestQuantTensor:
         with self.path.open("rb") as stream:

@@ -242,6 +242,58 @@ class PackedNestQuantTensor:
     def dequantize(self, *, device: torch.device | str = "cpu") -> torch.Tensor:
         return self.to_quantized_rows(device=device).dequantize()
 
+    def dequantize_chunked(
+        self,
+        *,
+        device: torch.device | str = "cpu",
+        output_dtype: torch.dtype | None = None,
+        rows_per_chunk: int = 128,
+    ) -> torch.Tensor:
+        """Decode row chunks and immediately store them in the target dtype."""
+        if isinstance(rows_per_chunk, bool) or not isinstance(rows_per_chunk, int) or rows_per_chunk < 1:
+            raise ValueError("rows_per_chunk must be a positive integer")
+        target_dtype = self.output_dtype if output_dtype is None else output_dtype
+        if target_dtype not in _DTYPE_TO_NAME:
+            raise ValueError("output_dtype must be float16, bfloat16, float32, or float64")
+        target_device = torch.device(device)
+        rows = self.indices.shape[0]
+        output = torch.empty(
+            (rows, self.feature_count), device=target_device, dtype=target_dtype
+        )
+        generated_dither = None
+        if self.dither_generator_state is not None:
+            # A single draw with the original full shape is required for exact
+            # portable replay. CPU RNG output is not guaranteed to be invariant
+            # when one large torch.rand call is split into smaller calls.
+            generated_dither = _generate_dither_from_state(
+                self.dither_generator_state, self.indices.shape,
+                device=self.dither_generator_device, dtype=self.output_dtype,
+                output_device="cpu", codec_semantics=self.codec_semantics,
+            )
+        for start in range(0, rows, rows_per_chunk):
+            end = min(start + rows_per_chunk, rows)
+            codes, beta_indices = self.indices.unpack_rows(
+                start, end, device=target_device
+            )
+            dither = None
+            if self.dither is not None:
+                dither = self.dither[start:end].to(target_device)
+            elif generated_dither is not None:
+                dither = generated_dither[start:end].to(target_device)
+            chunk = QuantizedRows(
+                codes=codes,
+                beta_indices=beta_indices,
+                dither=dither,
+                row_norms=self.row_norms[start:end].to(target_device),
+                q=self.indices.q,
+                betas=self.betas,
+                feature_count=self.feature_count,
+                output_dtype=self.output_dtype,
+                codec_semantics=self.codec_semantics,
+            ).dequantize()
+            output[start:end].copy_(chunk.to(target_dtype))
+        return output
+
 
 def _validate_metadata(tensor_name, indices, row_norms, betas, feature_count, output_dtype, dither):
     if not isinstance(tensor_name, str) or not tensor_name:

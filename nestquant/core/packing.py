@@ -105,6 +105,34 @@ class PackedNestQuantIndices:
         return (codes.reshape(self.shape).to(device),
                 beta_indices.reshape(beta_shape).to(device))
 
+    def unpack_rows(
+        self, start: int, end: int, *, device: torch.device | str = "cpu"
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Unpack a contiguous range along the leading row dimension."""
+        rows = self.shape[0]
+        if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int) or not isinstance(end, int):
+            raise TypeError("row bounds must be integers")
+        if start < 0 or end < start or end > rows:
+            raise ValueError("row range is outside packed tensor bounds")
+        code_values_per_row = math.prod(self.shape[1:])
+        beta_values_per_row = math.prod(self.shape[1:-1])
+        codes = _unpack_unsigned_range(
+            self.code_payload, start * code_values_per_row, end * code_values_per_row,
+            math.prod(self.shape), self.code_bit_width,
+        )
+        beta_indices = _unpack_unsigned_range(
+            self.beta_payload, start * beta_values_per_row, end * beta_values_per_row,
+            math.prod(self.shape[:-1]), self.beta_index_bit_width,
+        )
+        selected_rows = end - start
+        code_shape = (selected_rows, *self.shape[1:])
+        beta_shape = (selected_rows, *self.shape[1:-1])
+        if codes.numel() and int(codes.max()) >= self.q:
+            raise ValueError("decoded residue is outside [0, q)")
+        if beta_indices.numel() and int(beta_indices.max()) >= self.beta_count:
+            raise ValueError("decoded beta index is outside [0, beta_count)")
+        return codes.reshape(code_shape).to(device), beta_indices.reshape(beta_shape).to(device)
+
 
 def pack_nestquant_indices(
     codes: torch.Tensor,
@@ -195,3 +223,26 @@ def _unpack_unsigned(payload: bytes, value_count: int, width: int) -> torch.Tens
     for offset in range(per_byte):
         values[:, offset] = (packed >> (offset * width)) & ((1 << width) - 1)
     return torch.from_numpy(values.reshape(-1)[:value_count].copy()).to(torch.int64)
+
+
+def _unpack_unsigned_range(
+    payload: bytes, start: int, end: int, total_count: int, width: int
+) -> torch.Tensor:
+    """Unpack only ``[start, end)`` from a fixed-width byte stream."""
+    if start < 0 or end < start or end > total_count:
+        raise ValueError("packed value range is out of bounds")
+    if start == end:
+        return torch.empty((0,), dtype=torch.int64)
+    per_byte = 8 // width
+    first_byte = start // per_byte
+    last_byte = (end + per_byte - 1) // per_byte
+    packed = np.frombuffer(payload[first_byte:last_byte], dtype=np.uint8)
+    values = np.empty((packed.size, per_byte), dtype=np.uint8)
+    mask = (1 << width) - 1
+    for offset in range(per_byte):
+        values[:, offset] = (packed >> (offset * width)) & mask
+    local_start = start - first_byte * per_byte
+    count = end - start
+    return torch.from_numpy(
+        values.reshape(-1)[local_start:local_start + count].copy()
+    ).to(torch.int64)

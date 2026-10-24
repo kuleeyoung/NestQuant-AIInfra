@@ -50,6 +50,17 @@ class TestNestQuantPacking(unittest.TestCase):
         self.assertTrue(torch.equal(decoded_beta, beta_indices))
         self.assertEqual(decoded_container.serialized_bytes, len(packed.to_bytes()))
 
+    def test_unpack_rows_matches_full_unpack_for_unaligned_beta_ranges(self):
+        codes = torch.arange(5 * 3 * 8, dtype=torch.int64).remainder(14).reshape(5, 3, 8)
+        beta_indices = torch.arange(15, dtype=torch.int64).remainder(4).reshape(5, 3)
+        packed = pack_nestquant_indices(codes, beta_indices, q=14, beta_count=4)
+        for start, end in ((0, 1), (1, 4), (4, 5), (2, 2), (0, 5)):
+            selected_codes, selected_beta = packed.unpack_rows(start, end)
+            self.assertTrue(torch.equal(selected_codes, codes[start:end]))
+            self.assertTrue(torch.equal(selected_beta, beta_indices[start:end]))
+        with self.assertRaisesRegex(ValueError, "outside"):
+            packed.unpack_rows(-1, 2)
+
     def test_non_byte_aligned_value_count_has_zero_padding(self):
         codes = torch.tensor([[[1, 2, 3, 4, 5, 6, 7, 8]]])
         beta_indices = torch.tensor([[2]])
@@ -134,6 +145,12 @@ class TestNestQuantPacking(unittest.TestCase):
         )
         self.assertTrue(torch.equal(restored.dither, dither))
         self.assertTrue(torch.equal(restored.dequantize(), quantized.dequantize()))
+        expected = restored.dequantize().to(torch.bfloat16)
+        for rows_per_chunk in (1, 2, 5):
+            actual = restored.dequantize_chunked(
+                output_dtype=torch.bfloat16, rows_per_chunk=rows_per_chunk
+            )
+            self.assertTrue(torch.equal(actual, expected))
 
     @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
     def test_generator_state_artifact_reconstructs_on_cuda(self):
@@ -149,6 +166,13 @@ class TestNestQuantPacking(unittest.TestCase):
         self.assertIsNone(restored.dither)
         self.assertEqual(restored.dither_generator_device, "cpu")
         self.assertTrue(torch.equal(restored.dequantize(device="cuda"), quantized.dequantize()))
+        expected = restored.dequantize(device="cuda").to(torch.bfloat16)
+        for rows_per_chunk in (1, 2, 7):
+            actual = restored.dequantize_chunked(
+                device="cuda", output_dtype=torch.bfloat16,
+                rows_per_chunk=rows_per_chunk,
+            )
+            self.assertTrue(torch.equal(actual, expected))
 
 
 if __name__ == "__main__":

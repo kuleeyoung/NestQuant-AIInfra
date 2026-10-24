@@ -40,12 +40,22 @@ def main() -> None:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--rows-per-chunk", type=int)
+    parser.add_argument(
+        "--output-dtype", choices=("record", "float16", "bfloat16", "float32", "float64"),
+        default="record",
+    )
     parser.add_argument("--verify-checksum", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.warmup < 0 or args.repeats < 1:
         parser.error("--warmup must be nonnegative and --repeats must be positive")
+    if args.rows_per_chunk is not None and args.rows_per_chunk < 1:
+        parser.error("--rows-per-chunk must be positive")
     device = torch.device(args.device)
+    output_dtype = (
+        None if args.output_dtype == "record" else getattr(torch, args.output_dtype)
+    )
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is unavailable")
 
@@ -67,6 +77,7 @@ def main() -> None:
         read_times = []
         decode_times = []
         output_bytes = None
+        decoded_dtype = None
         baseline_rss = _rss_bytes()
         peak_rss = baseline_rss
         stop_sampling = threading.Event()
@@ -88,13 +99,23 @@ def main() -> None:
             read_seconds = time.perf_counter() - read_started
             _sync(device)
             decode_started = time.perf_counter()
-            value = (
-                record.dequantize(device=device)
-                if isinstance(record, PackedNestQuantTensor) else record.to(device)
-            )
+            if isinstance(record, PackedNestQuantTensor):
+                value = (
+                    record.dequantize(device=device)
+                    if args.rows_per_chunk is None else
+                    record.dequantize_chunked(
+                        device=device, output_dtype=output_dtype,
+                        rows_per_chunk=args.rows_per_chunk,
+                    )
+                )
+                if args.rows_per_chunk is None and output_dtype is not None:
+                    value = value.to(output_dtype)
+            else:
+                value = record.to(device=device, dtype=output_dtype or record.dtype)
             _sync(device)
             decode_seconds = time.perf_counter() - decode_started
             output_bytes = value.numel() * value.element_size()
+            decoded_dtype = str(value.dtype).removeprefix("torch.")
             peak_rss = max(peak_rss, _rss_bytes())
             if iteration >= args.warmup:
                 read_times.append(read_seconds)
@@ -110,6 +131,7 @@ def main() -> None:
             "kind": entry.kind,
             "shape": list(entry.shape),
             "dtype": str(entry.dtype).removeprefix("torch."),
+            "decoded_dtype": decoded_dtype,
             "record_bytes": entry.length,
             "decoded_tensor_bytes": output_bytes,
             "read_seconds": _stats(read_times),
@@ -132,6 +154,8 @@ def main() -> None:
         ),
         "warmup": args.warmup,
         "repeats": args.repeats,
+        "rows_per_chunk": args.rows_per_chunk,
+        "requested_output_dtype": args.output_dtype,
         "reader_initialization_seconds": validation_seconds,
         "cuda_context_warmup_seconds_excluded_from_tensor_measurements": (
             cuda_context_warmup_seconds

@@ -140,10 +140,15 @@ class TestModelCheckpoint(unittest.TestCase):
             self.assertEqual(entry.name, "lm_head.weight")
             self.assertIsInstance(packed, PackedNestQuantTensor)
             restored = reader.decode_tensor("embed_tokens.weight")
+            restored_chunked = reader.decode_tensor(
+                "embed_tokens.weight", output_dtype=torch.bfloat16,
+                rows_per_chunk=1,
+            )
             dense = reader.decode_tensor("norm.weight")
             with self.assertRaisesRegex(KeyError, "not present"):
                 reader.get_entry("missing.weight")
         self.assertTrue(torch.equal(restored, record.dequantize()))
+        self.assertTrue(torch.equal(restored_chunked, record.dequantize().to(torch.bfloat16)))
         self.assertTrue(torch.equal(dense, source.norm.weight))
 
     def test_streaming_writer_matches_in_memory_format(self):

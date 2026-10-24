@@ -1,0 +1,63 @@
+{
+  "status": "completed",
+  "scope": "bit-exact row-chunked NQRT decode directly stored as BF16",
+  "checkpoint_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 5070",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "warmup": 1,
+    "measured_repeats": 3,
+    "one_tensor_per_process": true
+  },
+  "correctness": {
+    "reference": "full float32 decode followed by BF16 cast",
+    "q_proj_mismatched_elements": 0,
+    "down_proj_mismatched_elements": 0,
+    "cpu_generator_replay_note": "The original full random draw shape is retained on CPU because splitting torch.rand calls is not bitstream invariant."
+  },
+  "rows128_comparison": {
+    "q_proj": {
+      "baseline_decode_mean_ms": 71.56453133333211,
+      "chunked_decode_mean_ms": 102.5125096666623,
+      "latency_change_percent": 43.24485573612045,
+      "baseline_rss_peak_bytes": 823328768,
+      "chunked_rss_peak_bytes": 847708160,
+      "rss_change_percent": 2.9610761760725968,
+      "baseline_cuda_peak_bytes": 247997952,
+      "chunked_cuda_peak_bytes": 56395776,
+      "cuda_peak_reduction_percent": 77.2595799500796,
+      "baseline_output_bytes": 16777216,
+      "chunked_output_bytes": 8388608
+    },
+    "down_proj": {
+      "baseline_decode_mean_ms": 337.4323176666631,
+      "chunked_decode_mean_ms": 338.253417333334,
+      "latency_change_percent": 0.24333758910493053,
+      "baseline_rss_peak_bytes": 1284022272,
+      "chunked_rss_peak_bytes": 1255194624,
+      "rss_change_percent": -2.24510498210424,
+      "baseline_cuda_peak_bytes": 891299328,
+      "chunked_cuda_peak_bytes": 124913664,
+      "cuda_peak_reduction_percent": 85.98521730289019,
+      "baseline_output_bytes": 67108864,
+      "chunked_output_bytes": 33554432
+    }
+  },
+  "down_proj_chunk_sweep": [
+    {"rows_per_chunk": 64, "decode_mean_ms": 354.216, "rss_peak_mib": 1184.50, "cuda_peak_mib": 91.56},
+    {"rows_per_chunk": 128, "decode_mean_ms": 338.253, "rss_peak_mib": 1197.05, "cuda_peak_mib": 119.13},
+    {"rows_per_chunk": 256, "decode_mean_ms": 314.380, "rss_peak_mib": 1161.00, "cuda_peak_mib": 174.25},
+    {"rows_per_chunk": 512, "decode_mean_ms": 301.800, "rss_peak_mib": 1200.46, "cuda_peak_mib": 284.50},
+    {"rows_per_chunk": 2048, "decode_mean_ms": 320.416, "rss_peak_mib": 1236.75, "cuda_peak_mib": 882.01}
+  ],
+  "raw_sha256": {
+    "q_proj_rows128": "14809416541ed201120ddf3b975897e2fee352843f1b58605ceeba660dc06706",
+    "down_proj_rows64": "bf4cf5ceb1e71eafaefc3ce9e6e36bf9b3da9d17dd310fe7766b5409b3191f76",
+    "down_proj_rows128": "022f309ec70fe7102e78f744143e30333aa58b10bc5254c28f7254a685a8031b",
+    "down_proj_rows256": "b0f1133ff54768745366ba76a0705568c3043dec2f733c18da3ce95292e72e65",
+    "down_proj_rows512": "3e1524d829c5428376d65a295c002598a59f7fffe4b79ad3c769603d5b0f06e4",
+    "down_proj_rows2048": "7e25b8851be71faba829e49105c14b8cb8afc7b0bca50dbb60dd5ceb5dcab006"
+  },
+  "claim_boundary": "This reduces standalone decode device-memory peaks. It is not a fused GEMM, full lazy-layer runtime, or end-to-end inference benchmark."
+}
