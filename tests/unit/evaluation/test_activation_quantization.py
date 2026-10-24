@@ -59,6 +59,27 @@ class TestActivationQuantization(unittest.TestCase):
         for handle in handles:
             handle.remove()
 
+    def test_calibration_hook_preserves_hadamard_rotated_modules(self):
+        config = LlamaConfig(
+            vocab_size=32, hidden_size=16, intermediate_size=32,
+            num_hidden_layers=1, num_attention_heads=2,
+            num_key_value_heads=1, max_position_embeddings=32,
+        )
+        model = LlamaForCausalLM(config).eval()
+        convert_linears_to_hadamard_coordinates_(model)
+        sampler = ActivationBlockSampler(calibration_chunks=1, sample_limit_per_module=8)
+        tokens = torch.tensor([[1, 2, 3, 4]])
+        with torch.inference_mode():
+            expected = model(tokens).logits
+        handles = attach_activation_calibration(model, sampler)
+        with torch.inference_mode():
+            actual = model(tokens).logits
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+        self.assertEqual(len(handles), 7)
+        self.assertEqual(len(sampler._samples), 7)
+        for handle in handles:
+            handle.remove()
+
     def test_attaches_only_to_seven_layer_projection_types(self):
         config = LlamaConfig(
             vocab_size=32, hidden_size=16, intermediate_size=32,

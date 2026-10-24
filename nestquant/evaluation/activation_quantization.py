@@ -174,7 +174,7 @@ def attach_activation_calibration(
         if isinstance(module, HadamardRotatedLinear):
             def rotated_hook(_module, _source, rotated, *, module_name=name):
                 sampler.record(module_name, rotated)
-                return None
+                return rotated
 
             handles.append(module.register_rotated_input_hook(rotated_hook))
         else:
