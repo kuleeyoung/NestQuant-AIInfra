@@ -7,7 +7,7 @@
 - 作者仓库：`cookiedoth/nestquant`；
 - 固定作者 commit：`6b269f84264afad990a09248d8eeb45d5f6248ff`；
 - 本项目模型：Llama-3.2-1B Base，并非论文主表中的 Llama-3-8B；
-- 审计日期：2026-10-23。
+- 审计日期：2026-10-24。
 
 页码使用 PDF 文件页码。论文正文印刷页码可能比 PDF 页码小一页。无法由论文或固定 commit 确认的内容明确标为“无法确认”，不根据期望结果补全。
 
@@ -44,7 +44,7 @@
 | 实际码率 | PDF p.9 合成公式；p.10 LLM 使用 zstd 压 beta indices | 公开路径保存量化模型 | NQPK/NQRT/NQMC 实测字节和 SHA256 | 权重存储已证明 | 未实现论文相同的 zstd beta 流与低比特执行布局 |
 | 低比特点积 | PDF p.7 Algorithm 4 | 固定仓库有 CUDA/Hadamard 依赖，公开 Python 路径主要是 simulation | 未实现 INT4/E8 fused dot-product kernel | 未完成 | 不能声称吞吐、延迟或低比特常驻显存收益 |
 | PPL split | PDF p.10 写 WikiText-2 validation | `parallel/ppl.py` 使用 test | 本项目使用 test | 已披露偏差 | 无法确认论文表格最终入口为何与正文不同 |
-| zero-shot | PDF p.10 列 ARC-Easy/Challenge、HellaSwag、Winogrande | 固定 README 表示 zero-shot code 将来加入 | lm-eval PIQA/HellaSwag 路径已开发但正式运行暂缓 | 暂缓 | PIQA 不是论文任务，不能称论文 zero-shot 复现 |
+| zero-shot | PDF p.10 列 ARC-Easy/Challenge、HellaSwag、Winogrande | 固定 README 表示 zero-shot code 将来加入 | `lm_eval==0.4.13` PIQA/HellaSwag 全量 BF16/W4/W4A4KV4，含数据指纹、任务哈希和逐样本核验 | 项目扩展实验已完成 | PIQA 不是论文任务；任务集合和模型不同，不能称论文 zero-shot 主表复现 |
 
 ## 旋转问题的当前状态与后续路线
 

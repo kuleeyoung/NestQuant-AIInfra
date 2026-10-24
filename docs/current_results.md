@@ -28,6 +28,8 @@
 | QuaRot 兼容移植 W4A4KV4 PPL | 21.095586 | 同上 | fake-quant 兼容移植 |
 | 共享校准 W4 NQMC | 1,044,557,140 B | [共享校准递进报告](../results/llama32_1b_shared128_w4a4kv4_progression.md) | 真实文件和独立回载；不证明低比特执行 |
 | QA-LDLQ 修正尺度 W4/W4A4KV4 | 10.283140 / 11.584234 | [QA-LDLQ 报告](../results/llama32_1b_qa_ldlq_ablation.md) | 负结果；未优于普通 LDLQ |
+| PIQA BF16/W4/W4A4KV4 `acc_norm` | 0.7481 / 0.7367 / 0.7078 | [下游评测报告](../results/llama32_1b_downstream_full.md) | 1,838 题；协议与逐样本身份校验通过 |
+| HellaSwag BF16/W4/W4A4KV4 `acc_norm` | 0.6423 / 0.6282 / 0.5996 | [下游评测报告](../results/llama32_1b_downstream_full.md) | 10,042 题；协议与逐样本身份校验通过 |
 
 BF16 的 9.758112 来自统一 WSL/CUDA 基线；早期 9.757045 和 QuaRot 兼容路径的 9.762884 属于不同运行路径。它们可以用于各自历史消融，但不能在当前主表中互相替换。
 
@@ -41,9 +43,11 @@ BF16 的 9.758112 来自统一 WSL/CUDA 基线；早期 9.757045 和 QuaRot 兼�
 | 两个 seed 的逐 Linear 旋转消融 | 证明项目定义的旋转可与 LDLQ 叠加 | 不是论文所有运行时旋转语义的逐项复现 |
 | QA-LDLQ `C=155` 退化结果 | 展示 Hessian 尺度错误的定位过程 | 已由尺度审计解释，不能作为最终 QA 配置 |
 
-## 暂缓结果
+## 下游评测解释
 
-PIQA/HellaSwag 完整评测已暂缓。相关脚本和严格汇总器保留，但没有正式分数，不能在 README、简历或报告中预填结论。
+PIQA/HellaSwag 完整评测已于 2026-10-24 完成。W4 相对 BF16 的 `acc_norm` 分别下降 1.1425/1.4141 个百分点；W4A4KV4 分别下降 4.0261/4.2721 个百分点。W4A4KV4 用时 15,633.48 秒，而 BF16/W4 分别为 257.46/264.34 秒；该差异反映当前 Python/PyTorch fake-quant 参考实现的重复量化、解码和 kernel launch 成本，不代表生产低比特 kernel 的性能。
+
+当前三档结果只能说明 A4 与 KV4 联合启用后的增量退化，不能把全部差值归因于 A4 或 KV4 单项。若要分离来源，需要在相同逐样本协议下补 W4A4 与 W4KV4 消融。
 
 ## 表述边界
 
@@ -52,6 +56,7 @@ PIQA/HellaSwag 完整评测已暂缓。相关脚本和严格汇总器保留，�
 - 可以陈述论文式 Hadamard 与 shared128 LDLQ 近似可加：组合 PPL 为 10.076729，相对仅 LDLQ 的 10.211760 继续下降 1.322%；
 - 可以陈述该组合检查点接入局部坐标 A4 后 PPL 为 10.688878；A4 相对 W4 增加 6.075%，完整激活 overload 为 5.4411%；
 - 可以陈述固定协议下的 PPL 与消融；
+- 可以陈述 PIQA/HellaSwag 全量 zero-shot 下游质量和逐题正确性翻转；PIQA 不是论文 zero-shot 主表任务，不能写成论文主表复现；
 - A4/KV4 仍是质量仿真，不能声称低比特张量常驻显存；
 - 没有 INT4 GEMM 或融合 kernel，不能声称推理加速；
 - QuaRot 数字来自有明确补丁的兼容移植，不能写成官方发布的 Llama-3.2-1B 结果；

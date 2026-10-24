@@ -43,7 +43,7 @@ python scripts/evaluate_downstream_tasks.py \
 
 W4和W4A4KV4必须传入共享校准NQMC。W4A4KV4还读取版本化KV beta配置。每次harness前向都会创建独立的`NestQuantDynamicCache`，避免不同候选答案之间复用KV状态。
 
-## 2026-10-24夜间运行
+## 2026-10-24正式运行
 
 Windows任务计划名称：`NestQuant-PIQA-HellaSwag-20261024`。
 
@@ -57,6 +57,19 @@ Windows任务计划名称：`NestQuant-PIQA-HellaSwag-20261024`。
 - 可审阅报告：`results/llama32_1b_downstream_full.md`；
 - 模型和数据集均使用本地缓存离线运行；
 - 已完成的单方法JSON会被跳过，因此支持再次触发后断点续跑。
+
+运行于北京时间 2026-10-23 23:53 启动，2026-10-24 04:44 完成，总状态 `completed`。三档原始结果、日志和逐样本记录保存在被 Git 忽略的 `results/raw/downstream_full_20261024/`；经协议校验的小型汇总和报告分别为 [`results/llama32_1b_downstream_full.json`](../results/llama32_1b_downstream_full.json) 与 [`results/llama32_1b_downstream_full.md`](../results/llama32_1b_downstream_full.md)。
+
+| 任务 | 方法 | acc | acc_norm | 相对 BF16 `acc_norm` | 方法耗时 |
+|---|---|---:|---:|---:|---:|
+| PIQA | BF16 | 0.7524 | 0.7481 | +0.00 pp | 4.3 min |
+| PIQA | W4 | 0.7394 | 0.7367 | -1.14 pp | 4.4 min |
+| PIQA | W4A4KV4 | 0.7225 | 0.7078 | -4.03 pp | 260.6 min |
+| HellaSwag | BF16 | 0.4814 | 0.6423 | +0.00 pp | 4.3 min |
+| HellaSwag | W4 | 0.4707 | 0.6282 | -1.41 pp | 4.4 min |
+| HellaSwag | W4A4KV4 | 0.4494 | 0.5996 | -4.27 pp | 260.6 min |
+
+W4A4KV4 的 260.6 分钟来自 Python/PyTorch 参考 fake-quant：A/K/V 在每次前向中量化后立即重构为浮点，再进入普通 BF16 算子。它不是 packed A/KV 常驻或 fused 低比特 kernel 的速度。BF16/W4 的耗时接近，是因为 W4 只在加载时从 NQMC 解码，评测阶段仍执行 BF16 Linear。
 
 ## 已完成smoke
 

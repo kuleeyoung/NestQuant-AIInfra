@@ -34,6 +34,8 @@ QuaRot 官方仓库没有原生支持 Llama-3.2-1B。这里的对照是明确记
 
 完整解释见 [共享校准 W4/A4/KV4 递进实验](results/llama32_1b_shared128_w4a4kv4_progression.md)、[共享校准与同范围 W4 对照](results/llama32_1b_shared_calibration_w4.md)和 [NestQuant 与 QuaRot 全矩阵报告](results/llama32_1b_quarot_comparison.md)。
 
+PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc_norm` 分别下降 1.14/1.41 个百分点，W4A4KV4 分别下降 4.03/4.27 个百分点。三档结果使用相同模型 revision、任务定义和逐样本身份；W4A4KV4 的 260.6 分钟耗时来自 Python/PyTorch fake-quant 参考路径，不能解释为低比特 kernel 性能。详见[下游评测报告](results/llama32_1b_downstream_full.md)。
+
 ## 实现内容
 
 - **E8 与嵌套格**：最近格点、Voronoi residue、subtractive dither 和 `q=2` 全码字往返验证。
@@ -73,7 +75,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 123 项主项目测试，覆盖 E8、codec、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4 与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 128 项主项目测试，覆盖 E8、codec、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-24 在 WSL/CUDA 正式环境运行 `python -m unittest discover -s tests -v`，128 项全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
@@ -98,7 +100,7 @@ python scripts/run_reproduction.py --stage full --dry-run
 
 完整 Llama 复现带有显式确认保护和产物级断点续跑。各阶段含义、正式命令与结果校验规则见 [统一复现工作流](docs/reproduction_workflow.md)。
 
-PIQA/HellaSwag zero-shot下游评测使用固定的`lm_eval==0.4.13`，入口为`scripts/evaluate_downstream_tasks.py`；当前比较BF16、共享校准NQMC W4和W4A4KV4质量，不将结果解释为低比特kernel加速。`scripts/summarize_downstream_results.py`只接受协议和逐样本身份一致的三档结果，并自动生成分数差与正确性翻转报告。固定协议、smoke证据和夜间运行安排见[下游评测协议](docs/downstream_evaluation.md)。
+PIQA/HellaSwag zero-shot下游评测使用固定的`lm_eval==0.4.13`，入口为`scripts/evaluate_downstream_tasks.py`；BF16、共享校准NQMC W4和W4A4KV4三档全量结果已完成。`scripts/summarize_downstream_results.py`只接受协议和逐样本身份一致的结果，并自动生成分数差与正确性翻转报告。固定协议、正式结果和证据边界见[下游评测协议](docs/downstream_evaluation.md)。
 
 正式校准窗口固定在 [`configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json`](configs/calibration/llama32_1b_wikitext2_train_seed58_n128.json)。该文件保存 128 个窗口的起点、逐窗口 token 哈希和总哈希；NestQuant Hessian 与 QuaRot 兼容入口都支持 `--calibration-manifest`，并在运行前验证模型、数据 revision、tokenization 和完整 train token 流。重新生成时应使用一个不存在的输出路径，因为生成器会拒绝静默覆盖正式清单：
 
@@ -126,7 +128,7 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         120 项分层单元测试
+tests/unit/         128 项分层单元测试
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁
@@ -152,6 +154,7 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [论文式 Hadamard + shared128 LDLQ W4A4 首窗口 smoke](results/llama32_1b_paper_hadamard_w4a4_smoke.md)
 - [论文式 Hadamard + shared128 LDLQ W4A4 完整 WikiText-2 PPL](results/llama32_1b_paper_hadamard_w4a4_full.md)
 - [固定作者代码与局部 Hadamard A4 语义对齐](docs/upstream_activation_alignment.md)
+- [A4 beta 校准协议](docs/activation_beta_calibration.md)
 - [简历证据边界](docs/resume_evidence.md)
 
 ## 论文与上游来源

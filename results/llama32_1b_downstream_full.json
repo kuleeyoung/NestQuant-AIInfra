@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "status": "completed",
+  "protocol": {
+    "tasks": [
+      "piqa",
+      "hellaswag"
+    ],
+    "limit_per_task": null,
+    "zero_shot": true,
+    "model_id": "meta-llama/Llama-3.2-1B",
+    "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "lm_eval": "0.4.13",
+    "task_provenance": {
+      "piqa": {
+        "dataset_path": "baber/piqa",
+        "split": "validation",
+        "row_count": 1838,
+        "dataset_fingerprint": "506e3cab853d8e73",
+        "task_yaml_sha256": "e874f7956ccac325b888d4a5dc600bad867b79fba2bd358fe8761ab8263270fb",
+        "task_readme_sha256": "788cef081bb9fff2afe8a30984ce17fffa7c0401674d5abd4f558306e713825a"
+      },
+      "hellaswag": {
+        "dataset_path": "Rowan/hellaswag",
+        "split": "validation",
+        "row_count": 10042,
+        "dataset_fingerprint": "71a62ba9d49be089",
+        "task_yaml_sha256": "e9ef8ac3fed02bf283777d946ae76cbf906152e9c92533c9794e5a9dad78d1cf",
+        "task_readme_sha256": "d12c5bb378e08ae58914c074a27a58faf853c4264c59b0e47bc125445b222df6"
+      }
+    }
+  },
+  "methods": {
+    "bf16": {
+      "elapsed_seconds": 257.456996442,
+      "tasks": {
+        "piqa": {
+          "sample_len": 1838,
+          "acc,none": 0.7524483133841132,
+          "acc_norm,none": 0.7480957562568009,
+          "delta_acc,none_pp_vs_bf16": 0.0,
+          "delta_acc_norm,none_pp_vs_bf16": 0.0
+        },
+        "hellaswag": {
+          "sample_len": 10042,
+          "acc,none": 0.48137821151165106,
+          "acc_norm,none": 0.642302330213105,
+          "delta_acc,none_pp_vs_bf16": 0.0,
+          "delta_acc_norm,none_pp_vs_bf16": 0.0
+        }
+      }
+    },
+    "w4": {
+      "elapsed_seconds": 264.340863385,
+      "tasks": {
+        "piqa": {
+          "sample_len": 1838,
+          "acc,none": 0.7393906420021763,
+          "acc_norm,none": 0.7366702937976061,
+          "delta_acc,none_pp_vs_bf16": -1.305767138193692,
+          "delta_acc_norm,none_pp_vs_bf16": -1.1425462459194846
+        },
+        "hellaswag": {
+          "sample_len": 10042,
+          "acc,none": 0.4707229635530771,
+          "acc_norm,none": 0.6281617207727545,
+          "delta_acc,none_pp_vs_bf16": -1.0655247958573977,
+          "delta_acc_norm,none_pp_vs_bf16": -1.414060944035056
+        }
+      }
+    },
+    "w4a4kv4": {
+      "elapsed_seconds": 15633.484464763,
+      "tasks": {
+        "piqa": {
+          "sample_len": 1838,
+          "acc,none": 0.7225244831338411,
+          "acc_norm,none": 0.7078346028291621,
+          "delta_acc,none_pp_vs_bf16": -2.992383025027212,
+          "delta_acc_norm,none_pp_vs_bf16": -4.02611534276388
+        },
+        "hellaswag": {
+          "sample_len": 10042,
+          "acc,none": 0.4494124676359291,
+          "acc_norm,none": 0.5995817566221868,
+          "delta_acc,none_pp_vs_bf16": -3.196574387572193,
+          "delta_acc_norm,none_pp_vs_bf16": -4.272057359091819
+        }
+      }
+    }
+  },
+  "correctness_transitions_vs_bf16": {
+    "w4": {
+      "piqa": {
+        "acc,none": {
+          "both_correct": 1327,
+          "bf16_correct_quantized_wrong": 56,
+          "bf16_wrong_quantized_correct": 32,
+          "both_wrong": 423,
+          "net_correct_change": -24
+        },
+        "acc_norm,none": {
+          "both_correct": 1312,
+          "bf16_correct_quantized_wrong": 63,
+          "bf16_wrong_quantized_correct": 42,
+          "both_wrong": 421,
+          "net_correct_change": -21
+        }
+      },
+      "hellaswag": {
+        "acc,none": {
+          "both_correct": 4634,
+          "bf16_correct_quantized_wrong": 200,
+          "bf16_wrong_quantized_correct": 93,
+          "both_wrong": 5115,
+          "net_correct_change": -107
+        },
+        "acc_norm,none": {
+          "both_correct": 6145,
+          "bf16_correct_quantized_wrong": 305,
+          "bf16_wrong_quantized_correct": 163,
+          "both_wrong": 3429,
+          "net_correct_change": -142
+        }
+      }
+    },
+    "w4a4kv4": {
+      "piqa": {
+        "acc,none": {
+          "both_correct": 1272,
+          "bf16_correct_quantized_wrong": 111,
+          "bf16_wrong_quantized_correct": 56,
+          "both_wrong": 399,
+          "net_correct_change": -55
+        },
+        "acc_norm,none": {
+          "both_correct": 1249,
+          "bf16_correct_quantized_wrong": 126,
+          "bf16_wrong_quantized_correct": 52,
+          "both_wrong": 411,
+          "net_correct_change": -74
+        }
+      },
+      "hellaswag": {
+        "acc,none": {
+          "both_correct": 4399,
+          "bf16_correct_quantized_wrong": 435,
+          "bf16_wrong_quantized_correct": 114,
+          "both_wrong": 5094,
+          "net_correct_change": -321
+        },
+        "acc_norm,none": {
+          "both_correct": 5829,
+          "bf16_correct_quantized_wrong": 621,
+          "bf16_wrong_quantized_correct": 192,
+          "both_wrong": 3400,
+          "net_correct_change": -429
+        }
+      }
+    }
+  },
+  "evidence_boundary": "W4 checkpoint is dequantized into BF16 Linear execution; A4/KV4 are fake quant. These results measure task quality, not low-bit kernel speed."
+}

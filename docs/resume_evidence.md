@@ -15,7 +15,10 @@
 - 已将 train64 block-LDLQ 的最终 code、beta index、行范数和 dither 状态写入 NQMC：实测文件 659,281,364 B、4.267043 bit/量化参数；无需 4.77 GiB Hessian 即可独立回载，完整 PPL 与内存量化精确一致为 10.276133。
 - 已实现旋转坐标下的 `H_rot=R^T H R` 并完成同源码两种子消融：seed 123/124 的旋转+train64 block-LDLQ PPL 为 10.1367/10.1215，均优于对应纯旋转 11.0048/11.1479 和仅 LDLQ 10.2761，相对普通 W4 分别消除 73.74%/74.78% 的 BF16 差距。
 
-上述 PPL 结果仅支持本项目当前量化范围和 beta 候选设置。NQMC 已提供真实低比特存储证据，但不等于完成 NestQuant 全文复现；不能据此声称等码率优越性、低比特常驻显存或推理加速。
+- 已在固定 Llama-3.2-1B、`lm_eval==0.4.13`、zero-shot 协议下完成 PIQA 1,838 题和 HellaSwag 10,042 题全量评测，并核对模型 revision、数据指纹、任务定义哈希和逐样本身份。NQMC W4 相对 BF16 的 `acc_norm` 分别下降 1.14/1.41 个百分点，W4A4KV4 分别下降 4.03/4.27 个百分点。
+- W4A4KV4 下游参考路径耗时 15,633.48 秒，BF16/W4 为 257.46/264.34 秒。该约 59 倍差异只可用于定位 Python/PyTorch fake-quant 开销和说明 fused kernel 的工程必要性，不能写成 NestQuant 低比特 kernel 性能。
+
+上述 PPL 和下游结果仅支持本项目当前量化范围、beta 配置与评测协议。NQMC 已提供真实低比特存储证据，但不等于完成 NestQuant 全文复现；不能据此声称等码率优越性、低比特常驻显存或推理加速。
 
 ## 达到对应证据后才能写
 
@@ -35,6 +38,10 @@
 > 独立实现并验证 NestQuant 的 [已完成模块]，在 [模型与数据协议] 上对比 [同范围基线]；将量化质量、实际存储开销与推理性能分开测量，获得 [本地测得指标与 trade-off]，完整保存配置、版本和复现实验脚本。
 
 方括号内容必须在实验完成后填入，不根据目标或论文参考值预填。
+
+## 下游评测完成（2026-10-24）
+
+正式报告为 [`results/llama32_1b_downstream_full.md`](../results/llama32_1b_downstream_full.md)，机器可读小型汇总为 [`results/llama32_1b_downstream_full.json`](../results/llama32_1b_downstream_full.json)。原始逐样本 JSON 和日志保留在被 Git 忽略的 `results/raw/downstream_full_20261024/`。三档均使用相同模型 revision、任务定义和样本身份；当前没有 W4A4/W4KV4 单项下游结果，因此不能把联合退化归因给单一模块。
 
 ## QA-LDLQ stage result (2026-10-22)
 
