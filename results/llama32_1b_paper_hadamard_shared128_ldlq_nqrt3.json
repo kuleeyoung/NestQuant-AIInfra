@@ -1,0 +1,49 @@
+{
+  "experiment": "llama32_1b_paper_hadamard_shared128_ldlq_nqrt3",
+  "status": "completed",
+  "codec_semantics": "e8_upstream_half_coset_tie_v1",
+  "format": "NQMC v1 containing NQRT v3 quantized tensor records",
+  "model": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "dataset": "Salesforce/wikitext:wikitext-2-raw-v1 test",
+  "dataset_revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "test_token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "protocol": {
+    "context_length": 2048,
+    "chunk_count": 141,
+    "predicted_token_count": 288627,
+    "q": 14,
+    "selected_beta_count": 4,
+    "paper_local_hadamard": true,
+    "encoder": "8-column E8 block-LDLQ",
+    "calibration_chunks": 128,
+    "relative_damp": 0.01,
+    "quantized_linear_count": 112,
+    "lm_head": "BF16 tied weight"
+  },
+  "result": {
+    "perplexity": 10.076886488055798,
+    "mean_nll_per_predicted_token": 2.310244334776728,
+    "total_nll": 666798.8916136026
+  },
+  "checkpoint": {
+    "path": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3.nqmc",
+    "bytes": 1044566690,
+    "sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+    "container_entries": 146,
+    "quantized_records": 112,
+    "dense_records": 34,
+    "all_quantized_records_use_declared_semantics": true,
+    "reloaded_before_perplexity": true
+  },
+  "legacy_comparison": {
+    "legacy_codec_semantics": "e8_legacy_integer_coset_tie_v1",
+    "legacy_perplexity": 10.076728589568342,
+    "absolute_ppl_change": 0.00015789848745662027,
+    "relative_ppl_change_percent": 0.0015669617976943329
+  },
+  "raw_manifests": {
+    "smoke": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3_smoke1.json",
+    "full": "results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt3_full.json"
+  }
+}

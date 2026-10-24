@@ -10,7 +10,7 @@
 - 已在 Llama-3.2-1B Base、WikiText-2 raw test 上完成 BF16/RTN W4/NestQuant W4 首轮完整 fake-quant PPL 对比；PPL 分别为 9.7570 / 13.0215 / 11.1494，结果 manifest 与协议偏差说明已归档在 `results/`。
 - 已实现 signed-Hadamard 权重旋转消融；在同源码、同 token 与同量化协议下，无旋转 PPL 为 11.2026，两个旋转 seed 分别为 11.0048 和 11.1479。该结果只证明质量仿真差异。
 - 已实现论文式局部 `W H` 权重与在线 `X H` 输入路径、自包含 NQMC 和独立回载；完整 288,627-token 同协议对照中，普通 W4 PPL 为 11.054059，局部 Hadamard W4 为 10.917094，下降 1.239%。运行时仍为 BF16 Linear，不能写成低比特推理加速。
-- 已验证论文式 Hadamard 与 shared128 block-LDLQ 可以叠加：组合 W4 PPL 为 10.076729，相对仅 LDLQ 的 10.211760 继续改善 1.322%，相对普通 W4 消除 75.414% 的 BF16 PPL 差距；组合 NQMC 为 1,044,561,090 B，并完成回载评测。
+- 已验证论文式 Hadamard 与 shared128 block-LDLQ 可以叠加：上游 E8 语义 NQRT v3 组合 W4 PPL 为 10.076886；1,044,566,690 B 的 NQMC 中 112/112 个量化记录携带明确 codec 语义，并完成全量回载评测。历史 legacy 消融 PPL 为 10.076729，继续用于说明 Hadamard 与 LDLQ 的近似可加性。
 - 已实现校准激活二阶统计、8×8 block-LDL 分解、E8 块误差反馈和分组 Hessian 惰性加载；在相同源码与测试 token 下，16/64 个 WikiText-2 train 序列校准的 LDLQ 将 Llama-3.2-1B NestQuant W4 PPL 从 11.2026 分别降至 10.3237/10.2761，train-64 消除了 64.09% 的 BF16 PPL 差距。
 - 已将 train64 block-LDLQ 的最终 code、beta index、行范数和 dither 状态写入 NQMC：实测文件 659,281,364 B、4.267043 bit/量化参数；无需 4.77 GiB Hessian 即可独立回载，完整 PPL 与内存量化精确一致为 10.276133。
 - 已实现旋转坐标下的 `H_rot=R^T H R` 并完成同源码两种子消融：seed 123/124 的旋转+train64 block-LDLQ PPL 为 10.1367/10.1215，均优于对应纯旋转 11.0048/11.1479 和仅 LDLQ 10.2761，相对普通 W4 分别消除 73.74%/74.78% 的 BF16 差距。

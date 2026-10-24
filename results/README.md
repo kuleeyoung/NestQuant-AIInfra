@@ -22,7 +22,9 @@ A4 beta 已在互不重叠的 WikiText-2 train 窗口上完成校准与 held-out
 
 局部 Hadamard + shared128 LDLQ 最佳 W4 检查点的四档递进已经闭环：W4/W4KV4/W4A4/W4A4KV4 PPL 为 10.076729/10.524110/10.688878/11.231160。A4 的单独损失大于 KV4，组合存在 `+0.006048` NLL 的小幅额外交互；见[完整递进报告](llama32_1b_paper_hadamard_w4a4kv4_progression.md)和[机器可读汇总](llama32_1b_paper_hadamard_w4a4kv4_progression.json)。
 
-固定作者 commit 的真实源码逐阶段对跑发现并修复了 E8 Voronoi 边界 tie-break 差异。新 NQRT v3 使用上游半整数 coset 语义，旧 NQRT v1/v2 由 legacy decoder 保持可复现；六组对齐和真实旧 checkpoint smoke 见[正式报告](fixed_upstream_codec_alignment.md)及[机器汇总](fixed_upstream_codec_alignment.json)。现有完整模型数字属于明确标注的 legacy codec 结果，后续将用 v3 重建正式端点。
+固定作者 commit 的真实源码逐阶段对跑发现并修复了 E8 Voronoi 边界 tie-break 差异。新 NQRT v3 使用上游半整数 coset 语义，旧 NQRT v1/v2 由 legacy decoder 保持可复现；六组对齐和真实旧 checkpoint smoke 见[正式报告](fixed_upstream_codec_alignment.md)及[机器汇总](fixed_upstream_codec_alignment.json)。历史 A4/KV4 四档矩阵属于明确标注的 legacy codec 结果；W4 正式端点已经由下述 v3 结果接替。
+
+最佳 W4 已用 NQRT v3 上游 E8 语义重建并完成完整 WikiText-2 评测：PPL 为 **10.076886**，112/112 个量化 tensor record 均显式携带 `e8_upstream_half_coset_tie_v1`。相对 legacy 结果 10.076729 仅变化 0.000158；见 [v3 模型端点报告](llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md)和[机器汇总](llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.json)。
 
 论文 §4.3 的局部 `WH` 权重与在线 `XH` 输入路径已完成短 token 数值 smoke；1/7/112 个 Linear 的相对 L2 logits 误差为 0.9554%/1.0751%/1.0964%，本次 top-1 均一致。该结果只用于旋转语义排错，见 [Hadamard 坐标 smoke](llama32_1b_hadamard_coordinate_smoke.md)。
 
