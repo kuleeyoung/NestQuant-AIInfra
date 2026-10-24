@@ -1,0 +1,50 @@
+{
+  "status": "completed",
+  "codec_semantics": "e8_upstream_half_coset_tie_v1",
+  "model": "meta-llama/Llama-3.2-1B",
+  "protocol": "NQRT v3 paper-style local Hadamard plus shared128 block-LDLQ, BF16 lm_head",
+  "predicted_token_count": 288627,
+  "chunk_count": 141,
+  "test_token_ids_sha256": "54927bf19e6e64b4008eeb93370c370fb25db18cf68eac8015cfe094c464d567",
+  "checkpoint_sha256": "383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+  "profiles": {
+    "w4": {"perplexity": 10.076886488055798, "mean_nll": 2.310244334776728},
+    "w4kv4": {"perplexity": 10.51578344713095, "mean_nll": 2.352877313952193},
+    "w4a4": {"perplexity": 10.689190241571314, "mean_nll": 2.3692329730164214},
+    "w4a4kv4": {"perplexity": 11.2320536073543, "mean_nll": 2.418771620006601}
+  },
+  "incremental_effects": {
+    "a4_ppl_delta_from_w4": 0.6123037535155156,
+    "kv4_ppl_delta_from_w4": 0.43889695907515147,
+    "combined_ppl_delta_from_w4": 1.1551671192985022,
+    "a4_nll_delta_from_w4": 0.05898863823969336,
+    "kv4_nll_delta_from_w4": 0.042632979175464936,
+    "combined_nll_delta_from_w4": 0.1085272852298731,
+    "nll_interaction": 0.0069056678147148
+  },
+  "quality_statistics": {
+    "w4kv4_kv_relative_squared_error": 0.006188336201266013,
+    "w4a4kv4_kv_relative_squared_error": 0.006188022297957847,
+    "w4a4_activation_relative_squared_error": 0.00638995468793512,
+    "w4a4_activation_overload_fraction": 0.057126115061712605,
+    "w4a4kv4_activation_relative_squared_error": 0.006391999034398127,
+    "w4a4kv4_activation_overload_fraction": 0.05711703866931563,
+    "activation_module_count": 112,
+    "kv_layer_count": 16
+  },
+  "legacy_comparison": {
+    "w4_ppl_delta": 0.00015789848745662027,
+    "w4kv4_ppl_delta": -0.008326527178323273,
+    "w4a4_ppl_delta": 0.0003120598113384163,
+    "w4a4kv4_ppl_delta": 0.0008938618886418215,
+    "nll_interaction_legacy": 0.0060481091700328,
+    "nll_interaction_nqrt3": 0.0069056678147148
+  },
+  "raw_sha256": {
+    "w4": "6fd21263f2aeac9eb849f9869f497f309fb533b8107af379bda38a2067764c28",
+    "w4kv4": "2311b9f714e54916f19dfff32f6fed41ba69909d7c175ee83abc86ca101c3a80",
+    "w4a4": "4db6ca8b4b6997bfdf92eeb09c694fe0794b1db0810bd0bc1eae3e1618fb62ab",
+    "w4a4kv4": "c54545615008ea5b68b92ab2cfe6c63f8ac729a41d3747821643f8bf8bfeae41"
+  },
+  "evidence_boundary": "W4 is loaded from NQMC and dequantized for BF16 Linear execution; A4 and KV4 are floating-point reconstruction quality simulations, not packed runtime or kernel benchmarks."
+}

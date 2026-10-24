@@ -16,15 +16,17 @@ NQMC 加载器已经完成从整文件/整 state-dict 常驻到分块校验、�
 
 论文式 Hadamard 与 shared128 block-LDLQ 的组合 PPL 为 10.076729，相对仅 LDLQ 的 10.211760 继续下降 1.322%；两项收益近似可加。四因素消融、自包含 NQMC 和结论边界见[Hadamard/LDLQ 组合报告](llama32_1b_paper_hadamard_ldlq_ablation.md)。
 
-局部 `X H` 坐标 A4 已接入该最佳 W4 检查点并完成全量评测：W4/W4A4 PPL 为 10.076729/10.688878，A4 增加 6.075%；112 个模块均在局部坐标量化，完整 overload 为 5.4411%。见[W4A4 完整报告](llama32_1b_paper_hadamard_w4a4_full.md)和[首窗口 smoke](llama32_1b_paper_hadamard_w4a4_smoke.md)。
+历史 NQRT v2 checkpoint 的局部 `X H` 坐标 A4 全量评测为 W4/W4A4 PPL 10.076729/10.688878；112 个模块均在局部坐标量化。该组保留用于 legacy 复现，见[W4A4 历史报告](llama32_1b_paper_hadamard_w4a4_full.md)和[首窗口 smoke](llama32_1b_paper_hadamard_w4a4_smoke.md)。
 
 A4 beta 已在互不重叠的 WikiText-2 train 窗口上完成校准与 held-out 选择。上游默认/global/projection-type/module 的 held-out PPL 分别为 9.782117/10.428573/10.557727/10.270711，因此不推广新配置并保留上游默认；详见[独立 held-out 报告](llama32_1b_a4_beta_holdout.md)和[机器可读汇总](llama32_1b_a4_beta_holdout.json)。原始逐模块统计留在 `results/raw/calibration/`，不进入 Git。
 
-局部 Hadamard + shared128 LDLQ 最佳 W4 检查点的四档递进已经闭环：W4/W4KV4/W4A4/W4A4KV4 PPL 为 10.076729/10.524110/10.688878/11.231160。A4 的单独损失大于 KV4，组合存在 `+0.006048` NLL 的小幅额外交互；见[完整递进报告](llama32_1b_paper_hadamard_w4a4kv4_progression.md)和[机器可读汇总](llama32_1b_paper_hadamard_w4a4kv4_progression.json)。
+历史 NQRT v2 四档递进为 W4/W4KV4/W4A4/W4A4KV4 PPL 10.076729/10.524110/10.688878/11.231160，交互项为 `+0.006048 NLL`；见[legacy 递进报告](llama32_1b_paper_hadamard_w4a4kv4_progression.md)和[机器可读汇总](llama32_1b_paper_hadamard_w4a4kv4_progression.json)。
 
 固定作者 commit 的真实源码逐阶段对跑发现并修复了 E8 Voronoi 边界 tie-break 差异。新 NQRT v3 使用上游半整数 coset 语义，旧 NQRT v1/v2 由 legacy decoder 保持可复现；六组对齐和真实旧 checkpoint smoke 见[正式报告](fixed_upstream_codec_alignment.md)及[机器汇总](fixed_upstream_codec_alignment.json)。历史 A4/KV4 四档矩阵属于明确标注的 legacy codec 结果；W4 正式端点已经由下述 v3 结果接替。
 
 最佳 W4 已用 NQRT v3 上游 E8 语义重建并完成完整 WikiText-2 评测：PPL 为 **10.076886**，112/112 个量化 tensor record 均显式携带 `e8_upstream_half_coset_tie_v1`。相对 legacy 结果 10.076729 仅变化 0.000158；见 [v3 模型端点报告](llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md)和[机器汇总](llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.json)。
+
+同一 NQRT v3 checkpoint 的完整四档矩阵也已完成：W4/W4KV4/W4A4/W4A4KV4 PPL 为 **10.076886/10.515783/10.689190/11.232054**。A4 的 NLL 损失大于 KV4，联合交互项为 `+0.006906 NLL`；见 [v3 递进报告](llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md)和[机器汇总](llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.json)。
 
 论文 §4.3 的局部 `WH` 权重与在线 `XH` 输入路径已完成短 token 数值 smoke；1/7/112 个 Linear 的相对 L2 logits 误差为 0.9554%/1.0751%/1.0964%，本次 top-1 均一致。该结果只用于旋转语义排错，见 [Hadamard 坐标 smoke](llama32_1b_hadamard_coordinate_smoke.md)。
 

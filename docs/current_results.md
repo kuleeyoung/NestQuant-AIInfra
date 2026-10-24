@@ -2,7 +2,7 @@
 
 本页是项目结果的唯一推荐入口。它不覆盖历史实验，而是说明当前应引用哪一组结果。历史文档保留当时的代码、协议和结论，不应用其中较旧的数字替代当前正式结果。
 
-> Codec 版本说明：最佳 W4 已用 NQRT v3 `e8_upstream_half_coset_tie_v1` 重建并完成全量评测，PPL 为 10.076886。NQRT v2 legacy 结果 10.076729 继续保留用于历史复现；A4/KV4 完整矩阵仍属于 legacy checkpoint。详见 [v3 模型端点](../results/llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md)和[固定上游对齐报告](../results/fixed_upstream_codec_alignment.md)。
+> Codec 版本说明：NQRT v3 `e8_upstream_half_coset_tie_v1` 的 W4/W4KV4/W4A4/W4A4KV4 全量矩阵已经完成。NQRT v2 legacy 结果继续保留用于历史复现，不再作为当前首选数字。详见 [v3 完整递进](../results/llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md)和[固定上游对齐报告](../results/fixed_upstream_codec_alignment.md)。
 
 ## 当前主协议
 
@@ -25,8 +25,8 @@
 | NestQuant W4A4KV4 PPL | 11.504096 | 同上 | 正式质量仿真 |
 | 论文式 Hadamard W4 PPL | 10.917094 | [局部 Hadamard W4 完整报告](../results/llama32_1b_paper_hadamard_w4_full.md) | 同协议普通 W4 为 11.054059；无 LDLQ |
 | 论文式 Hadamard + shared128 LDLQ W4 PPL | **10.076886** | [NQRT v3 上游语义端点](../results/llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md) | 当前首选 W4；112/112 记录为上游 E8 语义；真实 NQMC 回载 |
-| 论文式 Hadamard + shared128 LDLQ W4A4 PPL | **10.688878** | [局部 Hadamard W4A4 完整报告](../results/llama32_1b_paper_hadamard_w4a4_full.md) | 固定上游全局 A beta；局部 `X H` 坐标 fake quant |
-| 论文式 Hadamard + shared128 LDLQ W4KV4/W4A4KV4 PPL | **10.524110 / 11.231160** | [局部 Hadamard 完整递进矩阵](../results/llama32_1b_paper_hadamard_w4a4kv4_progression.md) | 同一 NQMC；A4/KV4 为浮点重建质量仿真 |
+| 论文式 Hadamard + shared128 LDLQ W4A4 PPL | **10.689190** | [NQRT v3 完整递进](../results/llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md) | 固定上游全局 A beta；局部 `X H` 坐标 fake quant |
+| 论文式 Hadamard + shared128 LDLQ W4KV4/W4A4KV4 PPL | **10.515783 / 11.232054** | [NQRT v3 完整递进](../results/llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md) | 同一 v3 NQMC；A4/KV4 为浮点重建质量仿真 |
 | A4 beta held-out 选择 | 保留上游默认 | [独立 train held-out 报告](../results/llama32_1b_a4_beta_holdout.md) | 新 module 最优 PPL 10.270711，仍差于默认 9.782117；未读取 test 选配置 |
 | QuaRot 兼容移植 GPTQ W4 PPL | 10.508346 | [QuaRot 对照](../results/llama32_1b_quarot_comparison.md) | 同校准/测试兼容移植，不是官方 Llama-3.2 结果 |
 | QuaRot 兼容移植 W4A4KV4 PPL | 21.095586 | 同上 | fake-quant 兼容移植 |
@@ -58,7 +58,7 @@ PIQA/HellaSwag 完整评测已于 2026-10-24 完成。W4 相对 BF16 的 `acc_no
 - 可以陈述真实 NQMC 文件字节数、哈希、独立回载和 PPL 一致性；
 - 可以陈述论文式 `W H`/`X H` 已完成 112 层、自包含 NQMC、独立回载和完整 288,627-token PPL；同协议无 LDLQ W4 中 PPL 从 11.054059 降至 10.917094；
 - 可以陈述上游语义 NQRT v3 的论文式 Hadamard + shared128 LDLQ 组合 PPL 为 10.076886；历史 legacy 四因素消融仍支持两项收益近似可加；
-- 可以陈述该组合检查点接入局部坐标 A4 后 PPL 为 10.688878；A4 相对 W4 增加 6.075%，完整激活 overload 为 5.4411%；
+- 可以陈述 NQRT v3 组合检查点接入局部坐标 A4 后 PPL 为 10.689190；A4 relative squared error 为 0.6390%，overload 为 5.7126%；
 - 可以陈述固定协议下的 PPL 与消融；
 - 可以陈述 PIQA/HellaSwag 全量 zero-shot 下游质量和逐题正确性翻转；PIQA 不是论文 zero-shot 主表任务，不能写成论文主表复现；
 - A4/KV4 仍是质量仿真，不能声称低比特张量常驻显存；

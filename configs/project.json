@@ -70,6 +70,7 @@
     "w4a4kv4_primary_result": "shared128_bf16_lm_head_w4a4kv4_ppl_11.504096_vs_w4a4_10.952032_w4kv4_10.668994_and_w4_10.211760",
     "paper_hadamard_w4a4kv4_progression": "legacy_nqrt_v2_shared128_ldlq_w4_w4kv4_w4a4_w4a4kv4_ppl_10.076729_10.524110_10.688878_11.231160",
     "paper_hadamard_shared128_ldlq_nqrt3_w4": "upstream_codec_semantics_full_ppl_10.076886_checkpoint_sha256_383fd3387414f2a85869851367ab4ecae21260e8b8b9b8ec9c991fe2d65de2bc",
+    "paper_hadamard_shared128_ldlq_nqrt3_progression": "upstream_codec_w4_w4kv4_w4a4_w4a4kv4_ppl_10.076886_10.515783_10.689190_11.232054",
     "codec_semantics": "new_exports_nqrt_v3_upstream_half_coset_tie; historical_results_nqrt_v2_legacy_integer_coset_tie_with_compatibility_decoder",
     "qa_ldlq": "implemented_scale_audited_and_closed_under_bounded_search",
     "packed_kv_cache": "not_implemented",

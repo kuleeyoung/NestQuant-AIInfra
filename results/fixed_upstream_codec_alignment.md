@@ -38,4 +38,4 @@ legacy project: equal distance -> integer coset
 - 作者源码文件 SHA-256 全部保存在原始对齐 JSON；
 - 作者 CUDA Hadamard 扩展没有参与本次 CPU 对齐。上游模块因检测到 CUDA 而提前 import 扩展，harness 注入了一个“被调用即报错”的占位符，实际 Hadamard 仍执行作者原始 SciPy CPU 分支。
 
-历史完整 PPL 报告由 NQRT v2/legacy 语义生成，现有兼容层可以继续复现，但不能自动称为严格上游 codec 语义结果。最佳 W4 checkpoint 已用 NQRT v3 重建并完成 288,627-token 正式评测：上游语义 PPL 为 `10.076886`，legacy PPL 为 `10.076729`，差值仅 `0.000158`。详见 [NQRT v3 模型端点报告](llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md)。A4/KV4 四档矩阵仍待在新 checkpoint 上重跑。
+历史完整 PPL 报告由 NQRT v2/legacy 语义生成，现有兼容层可以继续复现，但不能自动称为严格上游 codec 语义结果。最佳 W4 checkpoint 及 W4/W4KV4/W4A4/W4A4KV4 四档矩阵均已用 NQRT v3 重建；PPL 为 `10.076886/10.515783/10.689190/11.232054`。详见 [NQRT v3 模型端点报告](llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md)和[完整递进报告](llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md)。
