@@ -10,6 +10,7 @@ from torch.nn import functional as F
 from nestquant.core.model_checkpoint import PackedNestQuantModel
 from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.core.quantizer import quantize_rows
+from nestquant.core.codec import generate_e8_dither_stateless
 from nestquant.core.rotation import hadamard
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.models.lazy_linear import LazyNQMCLinear, LazyNQMCWeightCache
@@ -97,6 +98,8 @@ class TestLazyNQMCLinear(unittest.TestCase):
             LazyNQMCLinear(self.reader, "dense.weight")
         with self.assertRaisesRegex(ValueError, "cache_policy"):
             LazyNQMCLinear(self.reader, "proj.weight", cache_policy="layer")
+        with self.assertRaisesRegex(ValueError, "decode_backend"):
+            LazyNQMCLinear(self.reader, "proj.weight", decode_backend="cuda")
         with self.assertRaisesRegex(ValueError, "requires"):
             LazyNQMCLinear(self.reader, "proj.weight", cache_policy="lru")
         with self.assertRaisesRegex(ValueError, "only valid"):
@@ -191,6 +194,35 @@ class TestLazyNQMCLinear(unittest.TestCase):
             LazyNQMCLinear(
                 self.reader, "proj.weight", synchronize_profile=True
             )
+
+    @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
+    def test_tiled_backend_matches_reference_linear(self):
+        weight = torch.randn(7, 24, generator=torch.Generator().manual_seed(47))
+        seed = 20261025
+        dither = generate_e8_dither_stateless(21, seed).reshape(7, 3, 8)
+        rows = quantize_rows(
+            weight, q=14, betas=(0.25, 0.5, 0.75, 1.0), dither=dither
+        )
+        record = PackedNestQuantTensor.from_quantized_rows(
+            "proj.weight", rows, dither_seed=seed
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "v4.nqmc"
+            PackedNestQuantModel.from_state_dict(
+                {"proj.weight": weight}, {"proj.weight": record}
+            ).write_to_file(path)
+            reader = NQMCFileReader(path)
+            layer = LazyNQMCLinear(
+                reader, "proj.weight", compute_dtype=torch.bfloat16,
+                decode_backend="triton_tiled",
+            ).cuda()
+            inputs = torch.randn(3, 24, dtype=torch.bfloat16, device="cuda")
+            expected_weight = record.dequantize_chunked(
+                device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=2
+            )
+            self.assertTrue(torch.equal(
+                layer(inputs), F.linear(inputs, expected_weight)
+            ))
 
 
 if __name__ == "__main__":

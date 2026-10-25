@@ -45,6 +45,10 @@ def main() -> None:
     parser.add_argument("--rows-per-chunk", type=int, default=128)
     parser.add_argument("--sequence-length", type=int, default=8)
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument(
+        "--decode-backend", choices=("reference", "triton_tiled"),
+        default="reference",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.cache_mib < 0 or args.rows_per_chunk < 1 or args.sequence_length < 2:
@@ -73,6 +77,7 @@ def main() -> None:
         rows_per_chunk=args.rows_per_chunk,
         profile_callback=events.append,
         synchronize_profile=True,
+        decode_backend=args.decode_backend,
     )
     model.to(device)
     generator = torch.Generator(device="cpu").manual_seed(20261024)
@@ -130,6 +135,7 @@ def main() -> None:
         "device_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
         "torch_version": str(torch.__version__),
         "rows_per_chunk": args.rows_per_chunk,
+        "decode_backend": args.decode_backend,
         "cache_capacity_bytes": cache.capacity_bytes,
         "replaced_linear_count": len(conversion.replaced_linear_names),
         "warmup_seconds_excluded": warmup_seconds,

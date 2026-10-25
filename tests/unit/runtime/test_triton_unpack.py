@@ -10,6 +10,10 @@ from nestquant.core.quantizer import quantize_rows
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.runtime.triton_decode import dequantize_with_triton_unpack
 from nestquant.runtime.triton_unpack import triton_available, unpack_indices_triton
+from nestquant.runtime.triton_tiled_decode import (
+    _generate_stateless_dither_triton,
+    dequantize_tiled_triton,
+)
 
 
 @unittest.skipUnless(triton_available(), "Triton CUDA runtime is unavailable")
@@ -86,6 +90,47 @@ class TestTritonUnpack(unittest.TestCase):
             record, device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=2
         )
         self.assertTrue(torch.equal(actual, expected))
+
+    def test_tiled_v4_decoder_matches_reference_without_expanded_streams(self):
+        matrix = torch.randn(
+            17, 40, generator=torch.Generator().manual_seed(41)
+        ).cuda()
+        seed = 20261025
+        dither = generate_e8_dither_stateless(
+            85, seed, device="cuda"
+        ).reshape(17, 5, 8)
+        rows = quantize_rows(
+            matrix, q=14, betas=(0.25, 0.5, 0.75, 1.0), dither=dither
+        )
+        record = PackedNestQuantTensor.from_quantized_rows(
+            "weight", rows, dither_seed=seed
+        )
+        for dtype in (torch.float32, torch.bfloat16):
+            with self.subTest(dtype=dtype):
+                expected = record.dequantize_chunked(
+                    device="cuda", output_dtype=dtype, rows_per_chunk=3
+                )
+                for tile_blocks in (16, 64, 128):
+                    actual = dequantize_tiled_triton(
+                        record, output_dtype=dtype, tile_blocks=tile_blocks
+                    )
+                    self.assertTrue(torch.equal(actual, expected))
+
+    def test_tiled_dither_matches_reference_on_voronoi_boundaries(self):
+        cases = (
+            (1_283_774_271, 267_894),
+            (852_565_332, 475_261),
+            (730_069_157, 34_102),
+        )
+        for seed, block_offset in cases:
+            with self.subTest(seed=seed, block_offset=block_offset):
+                expected = generate_e8_dither_stateless(
+                    1, seed, block_offset=block_offset, device="cuda"
+                )
+                actual = _generate_stateless_dither_triton(
+                    1, seed, block_offset=block_offset
+                )
+                self.assertTrue(torch.equal(actual, expected))
 
 
 if __name__ == "__main__":

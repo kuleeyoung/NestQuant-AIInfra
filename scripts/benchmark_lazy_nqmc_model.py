@@ -65,6 +65,10 @@ def main() -> None:
     parser.add_argument("--lazy-repeats", type=int, default=2)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--skip-checksum", action="store_true")
+    parser.add_argument(
+        "--decode-backend", choices=("reference", "triton_tiled"),
+        default="reference",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.cache_mib < 0 or args.rows_per_chunk < 1:
@@ -129,6 +133,7 @@ def main() -> None:
         compute_dtype=torch.bfloat16,
         output_dtype=torch.bfloat16,
         rows_per_chunk=args.rows_per_chunk,
+        decode_backend=args.decode_backend,
     )
     lazy_model.to(device)
     lazy_load_seconds = time.perf_counter() - lazy_load_started
@@ -171,6 +176,7 @@ def main() -> None:
         "device": str(device),
         "device_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
         "torch_version": str(torch.__version__),
+        "decode_backend": args.decode_backend,
         "baseline": {
             "load_and_full_dequantize_seconds": baseline_load_seconds,
             "warmup_forward_seconds_excluded": baseline_warmup_seconds,

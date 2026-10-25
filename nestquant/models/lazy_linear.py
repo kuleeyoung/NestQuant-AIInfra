@@ -15,10 +15,12 @@ from torch.nn import functional as F
 from ..core.model_checkpoint_file import NQMCFileReader
 from ..core.rotation import hadamard
 from ..core.tensor_checkpoint import PackedNestQuantTensor
+from ..runtime.triton_tiled_decode import dequantize_tiled_triton
 
 
 CachePolicy = Literal["none", "persistent", "lru"]
-CacheKey = tuple[str, str, torch.dtype]
+DecodeBackend = Literal["reference", "triton_tiled"]
+CacheKey = tuple[str, str, torch.dtype, str]
 RuntimeProfileCallback = Callable[[dict[str, object]], None]
 
 
@@ -147,12 +149,15 @@ class LazyNQMCLinear(nn.Module):
         weight_cache: LazyNQMCWeightCache | None = None,
         profile_callback: RuntimeProfileCallback | None = None,
         synchronize_profile: bool = False,
+        decode_backend: DecodeBackend = "reference",
     ) -> None:
         super().__init__()
         if not isinstance(reader, NQMCFileReader):
             raise TypeError("reader must be an NQMCFileReader")
         if cache_policy not in {"none", "persistent", "lru"}:
             raise ValueError("cache_policy must be 'none', 'persistent', or 'lru'")
+        if decode_backend not in {"reference", "triton_tiled"}:
+            raise ValueError("decode_backend must be 'reference' or 'triton_tiled'")
         if cache_policy == "lru" and not isinstance(weight_cache, LazyNQMCWeightCache):
             raise ValueError("lru cache_policy requires a LazyNQMCWeightCache")
         if cache_policy != "lru" and weight_cache is not None:
@@ -201,6 +206,7 @@ class LazyNQMCLinear(nn.Module):
         self.weight_cache = weight_cache
         self.profile_callback = profile_callback
         self.synchronize_profile = synchronize_profile
+        self.decode_backend: DecodeBackend = decode_backend
         self._last_device = torch.device("cpu")
         self.register_buffer(
             "bias", None if bias is None else bias.detach().clone().to(compute_dtype)
@@ -242,7 +248,10 @@ class LazyNQMCLinear(nn.Module):
         return self._last_device
 
     def _cache_key(self, device: torch.device) -> CacheKey:
-        return self.canonical_weight_name, str(device), self.compute_dtype
+        return (
+            self.canonical_weight_name, str(device), self.compute_dtype,
+            self.decode_backend,
+        )
 
     def _weight(self, device: torch.device) -> torch.Tensor:
         self._last_device = device
@@ -262,6 +271,10 @@ class LazyNQMCLinear(nn.Module):
                 raise TypeError("LazyNQMCLinear weight record must remain quantized")
 
             def dequantize() -> torch.Tensor:
+                if self.decode_backend == "triton_tiled":
+                    return dequantize_tiled_triton(
+                        record, device=device, output_dtype=self.compute_dtype
+                    )
                 if self.rows_per_chunk is None:
                     return record.dequantize(device=device).to(self.compute_dtype)
                 return record.dequantize_chunked(

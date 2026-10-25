@@ -118,6 +118,11 @@ class TestLazyModelConversion(unittest.TestCase):
                 convert_model_to_lazy_nqmc_(
                     target, reader, LazyNQMCWeightCache(64), rows_per_chunk=0
                 )
+            with self.assertRaisesRegex(ValueError, "decode_backend"):
+                convert_model_to_lazy_nqmc_(
+                    target, reader, LazyNQMCWeightCache(64),
+                    decode_backend="cuda",
+                )
             self.assertIsInstance(target.proj, nn.Linear)
             self.assertTrue(torch.equal(target.norm.weight, before))
 

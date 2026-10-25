@@ -25,6 +25,7 @@ class LazyNQMCConversionReport:
     cache_capacity_bytes: int
     compute_dtype: torch.dtype
     rows_per_chunk: int | None
+    decode_backend: str
 
 
 def convert_model_to_lazy_nqmc_(
@@ -37,6 +38,7 @@ def convert_model_to_lazy_nqmc_(
     rows_per_chunk: int | None = 128,
     profile_callback: RuntimeProfileCallback | None = None,
     synchronize_profile: bool = False,
+    decode_backend: str = "reference",
 ) -> LazyNQMCConversionReport:
     """Load dense state and transactionally replace packed Linear weights.
 
@@ -66,6 +68,8 @@ def convert_model_to_lazy_nqmc_(
         raise TypeError("profile_callback must be callable")
     if synchronize_profile and profile_callback is None:
         raise ValueError("synchronize_profile requires a profile_callback")
+    if decode_backend not in {"reference", "triton_tiled"}:
+        raise ValueError("decode_backend must be 'reference' or 'triton_tiled'")
 
     state = model.state_dict()
     checkpoint_names = {entry.name for entry in reader.entries} | set(reader.aliases)
@@ -139,6 +143,7 @@ def convert_model_to_lazy_nqmc_(
             weight_cache=weight_cache,
             profile_callback=profile_callback,
             synchronize_profile=synchronize_profile,
+            decode_backend=decode_backend,
         )
         lazy.train(module.training)
         parent_name, _, child_name = module_name.rpartition(".")
@@ -153,6 +158,7 @@ def convert_model_to_lazy_nqmc_(
         cache_capacity_bytes=weight_cache.capacity_bytes,
         compute_dtype=compute_dtype,
         rows_per_chunk=rows_per_chunk,
+        decode_backend=decode_backend,
     )
 
 
