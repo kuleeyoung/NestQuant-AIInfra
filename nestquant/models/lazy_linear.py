@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from threading import RLock
 import time
 from typing import Literal
@@ -22,6 +23,41 @@ CachePolicy = Literal["none", "persistent", "lru"]
 DecodeBackend = Literal["reference", "triton_tiled"]
 CacheKey = tuple[str, str, torch.dtype, str]
 RuntimeProfileCallback = Callable[[dict[str, object]], None]
+
+
+class NQMCRecordPrefetcher:
+    """Keep at most one future NQMC record read ahead of model execution."""
+
+    def __init__(self, reader: NQMCFileReader) -> None:
+        if not isinstance(reader, NQMCFileReader):
+            raise TypeError("reader must be an NQMCFileReader")
+        self.reader = reader
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="nqmc-record-prefetch"
+        )
+        self._futures: dict[str, Future[bytes]] = {}
+        self._lock = RLock()
+
+    def prefetch(self, weight_name: str | None) -> None:
+        if weight_name is None:
+            return
+        entry = self.reader.get_entry(weight_name)
+        with self._lock:
+            if entry.name not in self._futures:
+                self._futures[entry.name] = self._executor.submit(
+                    self.reader.read_entry_blob, entry
+                )
+
+    def read(self, weight_name: str) -> bytes:
+        entry = self.reader.get_entry(weight_name)
+        with self._lock:
+            future = self._futures.pop(entry.name, None)
+        if future is None:
+            return self.reader.read_entry_blob(entry)
+        return future.result()
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
 
 class LazyNQMCWeightCache:
@@ -150,6 +186,8 @@ class LazyNQMCLinear(nn.Module):
         profile_callback: RuntimeProfileCallback | None = None,
         synchronize_profile: bool = False,
         decode_backend: DecodeBackend = "reference",
+        record_prefetcher: NQMCRecordPrefetcher | None = None,
+        next_weight_name: str | None = None,
     ) -> None:
         super().__init__()
         if not isinstance(reader, NQMCFileReader):
@@ -158,6 +196,10 @@ class LazyNQMCLinear(nn.Module):
             raise ValueError("cache_policy must be 'none', 'persistent', or 'lru'")
         if decode_backend not in {"reference", "triton_tiled"}:
             raise ValueError("decode_backend must be 'reference' or 'triton_tiled'")
+        if record_prefetcher is not None and not isinstance(
+            record_prefetcher, NQMCRecordPrefetcher
+        ):
+            raise TypeError("record_prefetcher must be an NQMCRecordPrefetcher or None")
         if cache_policy == "lru" and not isinstance(weight_cache, LazyNQMCWeightCache):
             raise ValueError("lru cache_policy requires a LazyNQMCWeightCache")
         if cache_policy != "lru" and weight_cache is not None:
@@ -207,6 +249,8 @@ class LazyNQMCLinear(nn.Module):
         self.profile_callback = profile_callback
         self.synchronize_profile = synchronize_profile
         self.decode_backend: DecodeBackend = decode_backend
+        self.record_prefetcher = record_prefetcher
+        self.next_weight_name = next_weight_name
         self._last_device = torch.device("cpu")
         self.register_buffer(
             "bias", None if bias is None else bias.detach().clone().to(compute_dtype)
@@ -258,10 +302,16 @@ class LazyNQMCLinear(nn.Module):
 
         def decode() -> torch.Tensor:
             entry = self.reader.get_entry(self.weight_name)
+            if self.record_prefetcher is None:
+                read_blob = lambda: self.reader.read_entry_blob(entry)
+            else:
+                read_blob = lambda: self.record_prefetcher.read(self.weight_name)
             blob = self._profile_phase(
-                "record_read", device, lambda: self.reader.read_entry_blob(entry),
+                "record_read", device, read_blob,
                 synchronize=False,
             )
+            if self.record_prefetcher is not None:
+                self.record_prefetcher.prefetch(self.next_weight_name)
             record = self._profile_phase(
                 "record_parse", device,
                 lambda: self.reader.parse_entry_blob(entry, blob),
@@ -347,6 +397,9 @@ class LazyNQMCLinear(nn.Module):
             "input_transform", inputs.device, transform_inputs, synchronize=True
         )
         weight = self._weight(inputs.device)
+        # A cache hit bypasses ``decode()``, so ensure the chain still advances.
+        if self.record_prefetcher is not None:
+            self.record_prefetcher.prefetch(self.next_weight_name)
         bias = None if self.bias is None else self.bias.to(inputs.device)
         target_dtype = original_dtype if self.output_dtype is None else self.output_dtype
         return self._profile_phase(

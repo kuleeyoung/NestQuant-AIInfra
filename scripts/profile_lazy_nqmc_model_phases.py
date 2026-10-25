@@ -49,6 +49,7 @@ def main() -> None:
         "--decode-backend", choices=("reference", "triton_tiled"),
         default="reference",
     )
+    parser.add_argument("--record-prefetch", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.cache_mib < 0 or args.rows_per_chunk < 1 or args.sequence_length < 2:
@@ -78,6 +79,7 @@ def main() -> None:
         profile_callback=events.append,
         synchronize_profile=True,
         decode_backend=args.decode_backend,
+        record_prefetch=args.record_prefetch,
     )
     model.to(device)
     generator = torch.Generator(device="cpu").manual_seed(20261024)
@@ -136,6 +138,7 @@ def main() -> None:
         "torch_version": str(torch.__version__),
         "rows_per_chunk": args.rows_per_chunk,
         "decode_backend": args.decode_backend,
+        "record_prefetch": args.record_prefetch,
         "cache_capacity_bytes": cache.capacity_bytes,
         "replaced_linear_count": len(conversion.replaced_linear_names),
         "warmup_seconds_excluded": warmup_seconds,

@@ -1,6 +1,11 @@
 """Adapters applying algorithm primitives to neural-network modules."""
 
-from .lazy_linear import CachePolicy, LazyNQMCLinear, LazyNQMCWeightCache
+from .lazy_linear import (
+    CachePolicy,
+    LazyNQMCLinear,
+    LazyNQMCWeightCache,
+    NQMCRecordPrefetcher,
+)
 from .lazy_model import LazyNQMCConversionReport, convert_model_to_lazy_nqmc_
 from .quantization import quantize_nestquant_w4_, quantize_rtn_w4_
 from .rotated_linear import (
@@ -18,6 +23,7 @@ __all__ = [
     "LazyNQMCLinear",
     "LazyNQMCConversionReport",
     "LazyNQMCWeightCache",
+    "NQMCRecordPrefetcher",
     "PAPER_HADAMARD_FORMAT",
     "convert_linears_to_hadamard_coordinates_",
     "convert_model_to_lazy_nqmc_",

@@ -11,6 +11,7 @@ from ..core.model_checkpoint_file import NQMCFileReader
 from .lazy_linear import (
     LazyNQMCLinear,
     LazyNQMCWeightCache,
+    NQMCRecordPrefetcher,
     RuntimeProfileCallback,
 )
 from .rotated_linear import PAPER_HADAMARD_FORMAT, HadamardRotatedLinear
@@ -26,6 +27,7 @@ class LazyNQMCConversionReport:
     compute_dtype: torch.dtype
     rows_per_chunk: int | None
     decode_backend: str
+    record_prefetch: bool
 
 
 def convert_model_to_lazy_nqmc_(
@@ -39,6 +41,7 @@ def convert_model_to_lazy_nqmc_(
     profile_callback: RuntimeProfileCallback | None = None,
     synchronize_profile: bool = False,
     decode_backend: str = "reference",
+    record_prefetch: bool = False,
 ) -> LazyNQMCConversionReport:
     """Load dense state and transactionally replace packed Linear weights.
 
@@ -70,6 +73,8 @@ def convert_model_to_lazy_nqmc_(
         raise ValueError("synchronize_profile requires a profile_callback")
     if decode_backend not in {"reference", "triton_tiled"}:
         raise ValueError("decode_backend must be 'reference' or 'triton_tiled'")
+    if not isinstance(record_prefetch, bool):
+        raise TypeError("record_prefetch must be a bool")
 
     state = model.state_dict()
     checkpoint_names = {entry.name for entry in reader.entries} | set(reader.aliases)
@@ -127,7 +132,14 @@ def convert_model_to_lazy_nqmc_(
             if state[alias].data_ptr() != state[canonical].data_ptr():
                 state[alias].copy_(state[canonical])
 
-    for module_name, module, weight_name in staged:
+    module_order = {name: index for index, name in enumerate(modules)}
+    execution_staged = sorted(staged, key=lambda item: module_order[item[0]])
+    prefetcher = NQMCRecordPrefetcher(reader) if record_prefetch else None
+    for index, (module_name, module, weight_name) in enumerate(execution_staged):
+        next_weight_name = (
+            execution_staged[index + 1][2]
+            if index + 1 < len(execution_staged) else None
+        )
         lazy = LazyNQMCLinear(
             reader,
             weight_name,
@@ -144,6 +156,8 @@ def convert_model_to_lazy_nqmc_(
             profile_callback=profile_callback,
             synchronize_profile=synchronize_profile,
             decode_backend=decode_backend,
+            record_prefetcher=prefetcher,
+            next_weight_name=next_weight_name,
         )
         lazy.train(module.training)
         parent_name, _, child_name = module_name.rpartition(".")
@@ -159,6 +173,7 @@ def convert_model_to_lazy_nqmc_(
         compute_dtype=compute_dtype,
         rows_per_chunk=rows_per_chunk,
         decode_backend=decode_backend,
+        record_prefetch=record_prefetch,
     )
 
 

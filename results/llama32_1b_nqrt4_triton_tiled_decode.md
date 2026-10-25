@@ -96,6 +96,26 @@ forward in that run took 78.18 ms, so the low-memory lazy path is still about
 four times slower after warm-up. Storage placement removes most of the prior
 I/O penalty but does not eliminate synchronous read/decode overhead.
 
+## One-record-ahead CPU prefetch
+
+An experimental `--record-prefetch` mode uses one background thread to read
+the next Linear's serialized record while the current record is parsed,
+decoded, and consumed. Model registration order defines the prefetch sequence;
+checkpoint manifest order is not assumed to be execution order.
+
+On ext4, synchronized profiling reduced visible record wait from 61.8 ms to
+1.67 ms, but parse and decode time increased enough that total forward changed
+only from 366.5 ms to 350.1 ms. In the non-profiling runs, no-prefetch warm
+times were 298/314 ms and prefetch warm times were 353/325 ms, so this is not a
+demonstrated ext4 latency improvement and remains disabled by default.
+
+On `/mnt/d`, prefetch reduced the first measured lazy forward from 2.759 s in
+the earlier no-prefetch run to 1.975 s; subsequent prefetch runs were
+1.500/1.415 s. This mitigates a slow storage path but remains far slower than
+putting the checkpoint on ext4. The engineering decision is therefore to keep
+CPU prefetch as an opt-in diagnostic feature, recommend ext4 placement first,
+and avoid claiming a general prefetch speedup from these measurements.
+
 ## Claim boundary
 
 The result supports a resume claim about implementing and validating a fused

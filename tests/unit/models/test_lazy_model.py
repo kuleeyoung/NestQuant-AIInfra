@@ -70,6 +70,7 @@ class TestLazyModelConversion(unittest.TestCase):
             self.assertIsInstance(target.proj, LazyNQMCLinear)
             self.assertEqual(report.replaced_linear_names, ("proj",))
             self.assertEqual(report.input_hadamard_names, ("proj",))
+            self.assertFalse(report.record_prefetch)
             self.assertTrue(torch.equal(target.norm.weight, source.norm.weight))
             self.assertTrue(torch.equal(target.proj.bias, source.proj.bias.to(torch.bfloat16)))
             inputs = torch.randn(3, 8, dtype=torch.bfloat16)
@@ -122,6 +123,11 @@ class TestLazyModelConversion(unittest.TestCase):
                 convert_model_to_lazy_nqmc_(
                     target, reader, LazyNQMCWeightCache(64),
                     decode_backend="cuda",
+                )
+            with self.assertRaisesRegex(TypeError, "record_prefetch"):
+                convert_model_to_lazy_nqmc_(
+                    target, reader, LazyNQMCWeightCache(64),
+                    record_prefetch=1,
                 )
             self.assertIsInstance(target.proj, nn.Linear)
             self.assertTrue(torch.equal(target.norm.weight, before))
