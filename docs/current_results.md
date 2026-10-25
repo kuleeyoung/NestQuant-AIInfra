@@ -62,6 +62,6 @@ PIQA/HellaSwag 完整评测已于 2026-10-24 完成。W4 相对 BF16 的 `acc_no
 - 可以陈述固定协议下的 PPL 与消融；
 - 可以陈述 PIQA/HellaSwag 全量 zero-shot 下游质量和逐题正确性翻转；PIQA 不是论文 zero-shot 主表任务，不能写成论文主表复现；
 - A4/KV4 仍是质量仿真，不能声称低比特张量常驻显存；
-- 没有 INT4 GEMM 或融合 kernel，不能声称推理加速；
+- 已有 packed NQRT 解码融合 BF16 Tensor Core dot 的真实 block 原型；100 次同协议测量中它相对标量 packed block 加速 1.57～1.73×，但仍慢于 BF16 常驻 block，不能声称 INT4 GEMM、端到端模型加速或生产吞吐提升；
 - QuaRot 数字来自有明确补丁的兼容移植，不能写成官方发布的 Llama-3.2-1B 结果；
 - 当前实现覆盖论文核心模块，但仍存在 beta 来源、旋转语义和运行时存储方面的差距，不能写成全文逐项复现完成。

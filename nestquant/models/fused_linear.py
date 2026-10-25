@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from dataclasses import dataclass
+import math
 
 import torch
 from torch import nn
@@ -15,6 +16,10 @@ from ..runtime.triton_fused_linear import (
     PreparedNQRTLinear,
     linear_fused_triton,
     prepare_fused_linear,
+)
+from ..runtime.triton_dot_linear import (
+    linear_fused_dot_triton,
+    select_nqrt_dot_config,
 )
 from ..runtime.triton_grouped_linear import linear_fused_qkv_triton
 from .rotated_linear import PAPER_HADAMARD_FORMAT, HadamardRotatedLinear
@@ -75,6 +80,7 @@ class FusedNQRTLinear(nn.Module):
         input_hadamard: bool = False,
         input_transform_cache: SharedHadamardCache | None = None,
         output_dtype: torch.dtype | None = None,
+        compute_backend: str = "tensor_core_dot",
     ) -> None:
         super().__init__()
         if not isinstance(reader, NQMCFileReader):
@@ -102,12 +108,15 @@ class FusedNQRTLinear(nn.Module):
             torch.float16, torch.bfloat16, torch.float32,
         }:
             raise ValueError("output_dtype must be float16, bfloat16, float32, or None")
+        if compute_backend not in {"tensor_core_dot", "scalar"}:
+            raise ValueError("compute_backend must be 'tensor_core_dot' or 'scalar'")
 
         self.reader = reader
         self.weight_name = weight_name
         self.input_hadamard = input_hadamard
         self.input_transform_cache = input_transform_cache
         self.output_dtype = output_dtype
+        self.compute_backend = compute_backend
         self.register_buffer("bias", None if bias is None else bias.detach().clone())
         self._prepared: PreparedNQRTLinear | None = None
 
@@ -169,9 +178,17 @@ class FusedNQRTLinear(nn.Module):
         else:
             compute_inputs = hadamard(inputs) if self.input_hadamard else inputs
         bias = None if self.bias is None else self.bias.to(inputs.device)
-        outputs = linear_fused_triton(
-            compute_inputs, self._prepared_for(inputs.device), bias
-        )
+        prepared = self._prepared_for(inputs.device)
+        if self.compute_backend == "tensor_core_dot":
+            token_count = math.prod(compute_inputs.shape[:-1])
+            config = select_nqrt_dot_config(
+                self.out_features, self.in_features, token_count
+            )
+            outputs = linear_fused_dot_triton(
+                compute_inputs, prepared, bias, **config
+            )
+        else:
+            outputs = linear_fused_triton(compute_inputs, prepared, bias)
         target_dtype = original_dtype if self.output_dtype is None else self.output_dtype
         return outputs.to(target_dtype)
 
@@ -300,6 +317,7 @@ def convert_linears_to_fused_nqrt_(
     *,
     output_dtype: torch.dtype | None = None,
     group_qkv: bool = False,
+    compute_backend: str = "tensor_core_dot",
 ) -> FusedNQRTConversionReport:
     """Transactionally replace selected model Linears with fused NQRT modules.
 
@@ -319,6 +337,8 @@ def convert_linears_to_fused_nqrt_(
         raise ValueError("include_names must be unique")
     if not isinstance(group_qkv, bool):
         raise TypeError("group_qkv must be a bool")
+    if compute_backend not in {"tensor_core_dot", "scalar"}:
+        raise ValueError("compute_backend must be 'tensor_core_dot' or 'scalar'")
 
     modules = dict(model.named_modules())
     hadamard_names = _hadamard_names(reader.model_metadata)
@@ -377,6 +397,7 @@ def convert_linears_to_fused_nqrt_(
                 getattr(module, "output_dtype", module.weight.dtype)
                 if output_dtype is None else output_dtype
             ),
+            compute_backend=compute_backend,
         )
         fused.train(module.training)
         parent_name, _, child_name = name.rpartition(".")

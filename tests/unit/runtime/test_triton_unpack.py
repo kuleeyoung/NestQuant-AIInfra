@@ -22,7 +22,33 @@ from nestquant.runtime.triton_grouped_linear import (
     linear_fused_pair_triton,
     linear_fused_qkv_triton,
 )
-from nestquant.runtime.triton_dot_linear import linear_fused_dot_triton
+from nestquant.runtime.triton_dot_linear import (
+    linear_fused_dot_triton,
+    select_nqrt_dot_config,
+)
+
+
+class TestNQRTDotDispatch(unittest.TestCase):
+    def test_selects_measured_llama_projection_configs(self):
+        cases = (
+            ((2048, 2048, 1), (32, 8)),
+            ((2048, 2048, 8), (64, 4)),
+            ((2048, 2048, 16), (64, 8)),
+            ((512, 2048, 16), (128, 8)),
+            ((8192, 2048, 8), (64, 8)),
+            ((2048, 8192, 1), (128, 8)),
+            ((2048, 8192, 128), (32, 4)),
+        )
+        for dimensions, expected in cases:
+            with self.subTest(dimensions=dimensions):
+                config = select_nqrt_dot_config(*dimensions)
+                self.assertEqual((config["block_k"], config["num_warps"]), expected)
+                self.assertEqual(config["block_m"], 16)
+                self.assertEqual(config["block_n"], 16)
+
+    def test_rejects_nonpositive_dimensions(self):
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            select_nqrt_dot_config(16, 0, 1)
 
 
 @unittest.skipUnless(triton_available(), "Triton CUDA runtime is unavailable")

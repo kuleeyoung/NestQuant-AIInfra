@@ -76,6 +76,14 @@ class TestFusedNQRTLinear(unittest.TestCase):
             self.assertEqual(report.shared_hadamard_groups, ())
             self.assertEqual(report.grouped_qkv_groups, ())
             self.assertFalse(model.first.prepared)
+            self.assertEqual(model.first.compute_backend, "tensor_core_dot")
+
+    def test_rejects_unknown_compute_backend(self):
+        model = TinyProjectionPair().eval()
+        with tempfile.TemporaryDirectory() as directory:
+            reader, _ = self._checkpoint(model, directory)
+            with self.assertRaisesRegex(ValueError, "compute_backend"):
+                FusedNQRTLinear(reader, "first.weight", compute_backend="unknown")
 
     def test_shared_hadamard_cache_reuses_only_the_same_input_object(self):
         cache = SharedHadamardCache(2)

@@ -83,6 +83,11 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=30)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--group-qkv", action="store_true")
+    parser.add_argument(
+        "--compute-backend",
+        choices=("tensor_core_dot", "scalar"),
+        default="tensor_core_dot",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.layer_index < 0 or args.repeats < 1:
@@ -164,7 +169,8 @@ def main() -> None:
             }
 
     conversion = convert_linears_to_fused_nqrt_(
-        model, reader, names, group_qkv=args.group_qkv
+        model, reader, names, group_qkv=args.group_qkv,
+        compute_backend=args.compute_backend,
     )
     layer = _module(model, layer_name)
     gc.collect()
@@ -228,6 +234,7 @@ def main() -> None:
         "layer_index": args.layer_index,
         "device_name": torch.cuda.get_device_name(),
         "repeats": args.repeats,
+        "compute_backend": args.compute_backend,
         "replaced_linear_names": list(conversion.replaced_linear_names),
         "shared_hadamard_groups": [
             list(group) for group in conversion.shared_hadamard_groups

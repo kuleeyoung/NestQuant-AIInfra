@@ -3,11 +3,56 @@
 from __future__ import annotations
 
 import math
+from typing import TypedDict
 
 import torch
 
 from .triton_fused_linear import PreparedNQRTLinear
 from .triton_unpack import _TRITON_INSTALLED
+
+
+class NQRTDotConfig(TypedDict):
+    """Launch parameters selected from the real Llama projection sweep."""
+
+    block_m: int
+    block_n: int
+    block_k: int
+    num_warps: int
+
+
+def select_nqrt_dot_config(
+    out_features: int, in_features: int, token_count: int
+) -> NQRTDotConfig:
+    """Choose a conservative launch config from the RTX 5070 shape sweep.
+
+    The measured Llama-3.2-1B shapes receive their locally fastest config.
+    Other compatible shapes use a stable fallback instead of pretending that
+    the small empirical table is a general-purpose autotuner.
+    """
+    if min(out_features, in_features, token_count) < 1:
+        raise ValueError("feature dimensions and token_count must be positive")
+    if token_count > 16:
+        return {"block_m": 16, "block_n": 16, "block_k": 32, "num_warps": 4}
+    if in_features == 8192 and out_features == 2048:
+        return {"block_m": 16, "block_n": 16, "block_k": 128, "num_warps": 8}
+    if in_features == 2048 and out_features == 512:
+        block_k = 128 if token_count > 8 else 32
+        return {"block_m": 16, "block_n": 16, "block_k": block_k, "num_warps": 8}
+    if in_features == 2048 and out_features == 8192:
+        if token_count == 1:
+            return {"block_m": 16, "block_n": 16, "block_k": 32, "num_warps": 4}
+        block_k = 64 if token_count <= 8 else 32
+        return {"block_m": 16, "block_n": 16, "block_k": block_k, "num_warps": 8}
+    if in_features == 2048 and out_features == 2048:
+        if token_count == 1:
+            return {"block_m": 16, "block_n": 16, "block_k": 32, "num_warps": 8}
+        return {
+            "block_m": 16,
+            "block_n": 16,
+            "block_k": 64,
+            "num_warps": 4 if token_count <= 8 else 8,
+        }
+    return {"block_m": 16, "block_n": 16, "block_k": 32, "num_warps": 4}
 
 
 if _TRITON_INSTALLED:

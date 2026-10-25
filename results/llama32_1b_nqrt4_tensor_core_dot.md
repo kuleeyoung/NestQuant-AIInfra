@@ -55,15 +55,57 @@ Tensor Core matrix-multiply-accumulate instructions. It supports a Tensor Core
 prototype claim; it does not imply an optimized INT4 Tensor Core kernel because
 the packed NQRT values are reconstructed to BF16 before MMA.
 
+## Projection-shape sweep and dispatch
+
+The follow-up sweep covers all four distinct block-0 projection shapes. Every
+one of the 192 shape/sequence/configuration combinations compiled and ran. The
+best dot kernel is 1.537-2.315x faster than the scalar fused kernel at the
+measured points.
+
+| Projection class | Weight shape | Seq 1 | Seq 8 | Seq 16 | Seq 128 |
+|---|---:|---:|---:|---:|---:|
+| q/o | 2048 x 2048 | 1.795x | 1.537x | 1.679x | 1.617x |
+| k/v | 512 x 2048 | 2.315x | 2.018x | 2.050x | 1.607x |
+| gate/up | 8192 x 2048 | 1.600x | 1.641x | 1.650x | 1.711x |
+| down | 2048 x 8192 | 2.003x | 2.049x | 2.063x | 1.691x |
+
+`BLOCK_N=16` wins at every measured point. The checked-in dispatcher preserves
+the measured K/warp choices for these shapes and uses K32/W4 as a conservative
+fallback for unknown shapes or token counts above 16. It is an empirical RTX
+5070 dispatch table, not a portable autotuner.
+
+## Real decoder-block integration
+
+`FusedNQRTLinear` now exposes `tensor_core_dot` and `scalar` compute backends,
+with the Tensor Core path as the default. Replacing all seven projections in a
+real Llama decoder block produces the following steady-state result (100 warmed,
+synchronized repetitions per backend, run back-to-back):
+
+| Sequence length | Resident BF16 block | Packed Tensor Core block | Packed/BF16 speed | Speedup over scalar packed block | Relative L2 error |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 3.1813 ms | 3.9220 ms | 0.811x | 1.726x | 0.139% |
+| 8 | 3.1743 ms | 4.0625 ms | 0.781x | 1.626x | 0.930% |
+| 16 | 3.2821 ms | 3.8935 ms | 0.843x | 1.571x | 1.620% |
+
+The seven resident projection weights occupy 121,634,816 bytes as decoded BF16
+and 32,403,568 bytes in packed form. The packed runtime therefore retains the
+73.36% weight-memory reduction while reducing the scalar packed block's latency
+by 36.3-42.1%. It remains 18.6-28.0% slower than its resident-BF16 block
+baseline, so this is
+not evidence of end-to-end model speedup.
+
 ## Decision and next step
 
-This positive result reopens model integration with a stronger compute path.
-The best configuration varies by sequence length, so the prototype should not
-replace the existing default until a small token-count dispatch policy is
-confirmed on q/k/v/o and gate/up/down shapes. The next experiment should test
-the dot kernel on all distinct Llama projection shapes and then rerun block 0.
+The Tensor Core path replaces the scalar fused path for independent packed
+Linears. Grouped QKV remains optional because its scalar grouped kernel does not
+share this dot implementation. The next bottleneck is repeated E8 reconstruction
+across M tiles, especially for longer prefill. A future kernel should either
+reuse decoded weight tiles across more token rows or adopt a genuinely low-bit
+MMA representation; the current kernel must still be described as packed NQRT
+decode feeding BF16 Tensor Core MMA, not INT4 Tensor Core GEMM.
 
-Machine-readable measurements:
-`results/raw/llama32_1b_nqrt4_dot_qproj.json`.
+Machine-readable measurements are retained under `results/raw/` for q, k, gate,
+and down projections plus `llama32_1b_nqrt4_tensor_core_block0.json`.
 
-Reproduction entry point: `scripts/benchmark_triton_dot_linear.py`.
+Reproduction entry points: `scripts/benchmark_triton_dot_linear.py` and
+`scripts/benchmark_fused_nqrt_block.py`.
