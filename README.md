@@ -51,6 +51,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **真实 Transformer block 接入**：新增可选择性替换标准 `nn.Linear`/Hadamard Linear 的 `FusedNQRTLinear`，首次调用按需读取 NQMC 并让 packed 流常驻 GPU。Llama block 0 的 Q/K/V/O 与 gate/up/down 七个投影从 121.63 MB BF16 降至 32.40 MB packed（26.64%）；共享 QKV 和 gate/up 的输入 Hadamard 后，sequence length 1/8/16 的稳态 block 延迟约 5.96/5.89/5.94 ms，仍慢于 BF16 权重常驻参考的 3.82/3.80/3.57 ms。共享变换仅改善 0%～1.4%，证明主瓶颈是七次 packed 点积和 kernel launch；下一步需要融合 QKV、gate/up 并利用 Tensor Core。
 - **Grouped packed QKV kernel**：真实 block-0 Q/K/V（2048/512/512 × 2048）保留各自 payload、beta table 和 dither seed，通过一个三维 Triton grid 同时调度；三个输出与独立 fused kernel 逐比特一致，sequence length 1/8/16 的三次 launch 中位延迟 0.8315/0.8272/0.8095 ms 降至单次 grouped launch 的 0.7417/0.7584/0.7599 ms，即加速 1.121×/1.091×/1.065×。这是隔离 QKV kernel 结果，尚未代表完整 attention 或 block 加速。
 - **Grouped QKV 模型接入边界**：通过一次计算、三次领取、消费后清空的 coordinator 接入真实 `LlamaAttention`；block 级 seq 1/8/16 延迟由独立 QKV 的 5.9640/5.8931/5.9380 ms 变为 6.0506/5.8958/5.8766 ms，即 -1.4%/约 0%/+1.0%。隔离 kernel 收益未形成稳定 block 加速，下一步需 grouped gate/up 或更高效的 Tensor Core 点积。
+- **Grouped gate/up 停止条件**：真实 block-0 gate/up 均为 8192×2048；一次 grouped launch 与两个独立 fused kernel 逐比特一致，但 seq 1/8/16 延迟由 1.8892/1.8774/1.8796 ms 增至 1.8983/1.9031/1.9372 ms，即慢 0.5%/1.4%/3.0%。隔离实验已否决模型接入，launch-only 优化分支结束，下一步必须转向 `tl.dot`/Tensor Core 兼容的数据流。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
 - **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **分块目标 dtype 解码**：row-range bit unpack 与 bit-exact dither replay 可直接写入 BF16；`down_proj` 的单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB，尚未接入 GEMM。
@@ -88,7 +89,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 171 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear、共享 Hadamard 缓存、真实 block 选择性替换、grouped QKV 逐比特一致及 coordinator 生命周期、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-25 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，171 项及 9 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 172 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear、共享 Hadamard 缓存、真实 block 选择性替换、grouped QKV/Pair 逐比特一致及 coordinator 生命周期、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-25 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，172 项及 9 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 

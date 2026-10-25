@@ -276,3 +276,101 @@ def linear_fused_qkv_triton(
     )
     leading = inputs.shape[:-1]
     return tuple(output.reshape(*leading, count) for output, count in zip(outputs, rows, strict=True))
+
+
+def linear_fused_pair_triton(
+    inputs: torch.Tensor,
+    pair: tuple[PreparedNQRTLinear, PreparedNQRTLinear],
+    *,
+    block_rows: int = 16,
+    block_tokens: int = 16,
+    num_warps: int = 2,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Apply two compatible packed projections in one Triton launch."""
+    if not isinstance(inputs, torch.Tensor) or not inputs.is_floating_point():
+        raise TypeError("inputs must be a floating-point tensor")
+    if inputs.device.type != "cuda" or not torch.cuda.is_available():
+        raise ValueError("grouped fused Linear requires CUDA inputs")
+    if not isinstance(pair, tuple) or len(pair) != 2 or not all(
+        isinstance(item, PreparedNQRTLinear) for item in pair
+    ):
+        raise TypeError("pair must contain two PreparedNQRTLinear values")
+    if block_rows not in {4, 8, 16, 32}:
+        raise ValueError("block_rows must be one of 4, 8, 16, or 32")
+    if block_tokens not in {1, 2, 4, 8, 16}:
+        raise ValueError("block_tokens must be one of 1, 2, 4, 8, or 16")
+    if num_warps not in {1, 2, 4, 8}:
+        raise ValueError("num_warps must be one of 1, 2, 4, or 8")
+    if not _TRITON_INSTALLED:
+        raise RuntimeError("Triton is not installed")
+    if not inputs.is_contiguous():
+        inputs = inputs.contiguous()
+
+    records = tuple(item.record for item in pair)
+    first = records[0]
+    compatibility = (
+        first.feature_count,
+        first.indices.q,
+        first.indices.code_bit_width,
+        first.indices.beta_index_bit_width,
+        first.dither_algorithm,
+        first.codec_semantics,
+    )
+    for item, record in zip(pair, records, strict=True):
+        current = (
+            record.feature_count,
+            record.indices.q,
+            record.indices.code_bit_width,
+            record.indices.beta_index_bit_width,
+            record.dither_algorithm,
+            record.codec_semantics,
+        )
+        if current != compatibility:
+            raise ValueError("grouped projections must use compatible NQRT metadata")
+        if item.code_payload.device != inputs.device:
+            raise ValueError("prepared projections must be on the input device")
+    if inputs.ndim < 1 or inputs.shape[-1] != first.feature_count:
+        raise ValueError("input feature dimension does not match grouped weights")
+    if inputs.dtype not in {torch.float16, torch.bfloat16, torch.float32}:
+        raise ValueError("inputs must use float16, bfloat16, or float32")
+
+    rows = tuple(record.indices.shape[0] for record in records)
+    blocks_per_row = first.indices.shape[1]
+    token_count = math.prod(inputs.shape[:-1])
+    flat_inputs = inputs.reshape(token_count, first.feature_count)
+    outputs = tuple(
+        torch.empty((token_count, count), device=inputs.device, dtype=inputs.dtype)
+        for count in rows
+    )
+    assert triton is not None and _nqrt_v4_fused_qkv_kernel is not None
+    # The kernel supports three projection planes; a two-plane grid never
+    # executes group 2, so duplicated third pointers are never read or written.
+    _nqrt_v4_fused_qkv_kernel[
+        (
+            triton.cdiv(token_count, block_tokens),
+            max(triton.cdiv(count, block_rows) for count in rows),
+            2,
+        )
+    ](
+        flat_inputs,
+        pair[0].code_payload, pair[0].beta_payload, pair[0].row_norms, outputs[0],
+        pair[1].code_payload, pair[1].beta_payload, pair[1].row_norms, outputs[1],
+        pair[1].code_payload, pair[1].beta_payload, pair[1].row_norms, outputs[1],
+        pair[0].beta_table, pair[1].beta_table, pair[1].beta_table,
+        token_count=token_count,
+        rows_0=rows[0], rows_1=rows[1], rows_2=rows[1],
+        feature_count=first.feature_count,
+        blocks_per_row=blocks_per_row,
+        sqrt_feature=first.feature_count ** 0.5,
+        q=first.indices.q,
+        seed_0=records[0].dither_seed,
+        seed_1=records[1].dither_seed,
+        seed_2=records[1].dither_seed,
+        code_width=first.indices.code_bit_width,
+        beta_width=first.indices.beta_index_bit_width,
+        block_rows=block_rows,
+        block_tokens=block_tokens,
+        num_warps=num_warps,
+    )
+    leading = inputs.shape[:-1]
+    return tuple(output.reshape(*leading, count) for output, count in zip(outputs, rows, strict=True))
