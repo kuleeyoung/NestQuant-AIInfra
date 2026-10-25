@@ -172,6 +172,7 @@ def linear_fused_triton(
     *,
     block_rows: int = 16,
     block_tokens: int | None = None,
+    num_warps: int = 2,
 ) -> torch.Tensor:
     """Apply a packed NQRT v4 Linear without materializing its full weight."""
     if not isinstance(inputs, torch.Tensor) or not inputs.is_floating_point():
@@ -195,6 +196,8 @@ def linear_fused_triton(
         raise ValueError("inputs must use float16, bfloat16, or float32")
     if block_rows not in {4, 8, 16, 32}:
         raise ValueError("block_rows must be one of 4, 8, 16, or 32")
+    if num_warps not in {1, 2, 4, 8}:
+        raise ValueError("num_warps must be one of 1, 2, 4, or 8")
     rows, blocks_per_row, _ = record.indices.shape
     if bias is not None:
         if bias.device != inputs.device or tuple(bias.shape) != (rows,):
@@ -207,7 +210,9 @@ def linear_fused_triton(
     assert triton is not None and _nqrt_v4_fused_linear_kernel is not None
     token_count = math.prod(inputs.shape[:-1])
     if block_tokens is None:
-        block_tokens = min(16, 1 << max(0, token_count - 1).bit_length())
+        # A fixed 16-token tile also wins for shorter inputs on RTX 5070; masked
+        # lanes keep the result valid while giving Triton a regular layout.
+        block_tokens = 16
     if block_tokens not in {1, 2, 4, 8, 16}:
         raise ValueError("block_tokens must be one of 1, 2, 4, 8, 16, or None")
     flat_inputs = inputs.reshape(token_count, record.feature_count)
@@ -234,6 +239,6 @@ def linear_fused_triton(
         has_bias=bias is not None,
         block_rows=block_rows,
         block_tokens=block_tokens,
-        num_warps=4,
+        num_warps=num_warps,
     )
     return output.reshape(*inputs.shape[:-1], rows)

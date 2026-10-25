@@ -47,7 +47,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **NQRT v4 与 compiled runtime 原型**：stateless random-access dither 在 CPU/CUDA 与任意分块下逐比特一致；真实 1B checkpoint PPL 10.070482；单个 tiled Triton kernel 融合 packed code/beta 读取、dither、E8 重建和行缩放，真实 checkpoint 112/112 权重与参考 BF16 输出逐比特一致。它仍会物化 BF16 权重，尚未融合 GEMM。
 - **存储路径与整模型 runtime 诊断**：同一 NQMC 的 112 条量化记录在 WSL ext4 与 Windows `/mnt/d` 上交替读取 7 轮，均值为 0.121/1.485 秒；ext4 上 warm lazy forward 为 0.298/0.314 秒，CUDA peak 846 MB，logits 与完整反量化基线逐比特一致，但仍慢于 78.18 ms 的 BF16 常驻基线。
 - **解码/GEMM 重叠边界**：双 CUDA stream 的隔离实验在 sequence length 2048 的 q→k、gate→up、up→down 上分别获得 1.21×/1.35×/1.10×，但 length 1/8 无一致收益；双流调度适合长上下文 prefill，不是逐 token 生成中物化 BF16 权重的通用解法。
-- **Packed-weight fused Linear 原型**：真实 2048×2048 q_proj 的 NQRT 常驻数据为 2.24 MB（BF16 权重的 26.66%），kernel 在 E8 解码后直接累加 Linear 输出，不生成完整 BF16 权重；sequence length 1/8/16 的临时峰值仅为输出大小，但当前延迟仍比 decode-then-GEMM 慢 11%–18%，且尚未使用 Tensor Core。
+- **Packed-weight fused Linear 原型**：真实 2048×2048 q_proj 的 NQRT 常驻数据为 2.24 MB（BF16 权重的 26.66%），kernel 在 E8 解码后直接累加 Linear 输出，不生成完整 BF16 权重；sequence length 1/8/16 的临时峰值仅为输出大小。RTX 5070 上扫描 135 组 tile/warp 配置并用 100 次独立计时确认后，新默认配置使融合路径自身中位延迟降低 20%/29%/35%，正式 50 次基准比 decode-then-GEMM 快 1.16×/1.20×/1.20×；当前仍是单层、非 Tensor Core 原型，不能外推为完整模型加速。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
 - **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **分块目标 dtype 解码**：row-range bit unpack 与 bit-exact dither replay 可直接写入 BF16；`down_proj` 的单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB，尚未接入 GEMM。

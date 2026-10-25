@@ -26,13 +26,14 @@ sequence lengths 1/8/16. Decode-then-GEMM increases allocated memory by about
 
 ## Latency and numerical agreement
 
-Each path is warmed up and measured 30 times with CUDA synchronization.
+After autotuning, each path is warmed up and measured 50 times with CUDA
+synchronization.
 
 | Sequence length | BF16 resident GEMM | Decode then GEMM | Packed fused | Fused vs decode+GEMM | Relative L2 error |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 0.0369 ms | 0.4667 ms | 0.5269 ms | 1.13x slower | 0.268% |
-| 8 | 0.0321 ms | 0.4905 ms | 0.5454 ms | 1.11x slower | 0.247% |
-| 16 | 0.0870 ms | 0.4994 ms | 0.5879 ms | 1.18x slower | 0.258% |
+| 1 | 0.0353 ms | 0.4628 ms | 0.4000 ms | 1.157x faster | 0.268% |
+| 8 | 0.0653 ms | 0.4918 ms | 0.4113 ms | 1.196x faster | 0.247% |
+| 16 | 0.0344 ms | 0.4883 ms | 0.4057 ms | 1.203x faster | 0.258% |
 
 Maximum absolute error versus PyTorch BF16 GEMM is 0.03125-0.0625. The fused
 kernel reconstructs the same packed weights, but its explicit FP32 reduction
@@ -42,19 +43,19 @@ below 1%.
 
 ## Kernel design and current limitation
 
-One program handles a tile of output rows and 1-16 tokens. Every E8 block is
-decoded once per token tile rather than once per token. Automatic token-tile
-selection makes token counts up to 16 the intended first-stage workload.
-Longer sequences launch multiple token tiles and repeat weight decoding, so
-this version is not a competitive prefill GEMM.
+One program handles 16 output rows and a tile of 16 tokens. Every E8 block is
+decoded once per token tile rather than once per token; inactive lanes are
+masked for shorter inputs. A 135-configuration sweep and an independent
+100-repeat confirmation selected 2 warps per program. Longer sequences launch
+multiple token tiles and repeat weight decoding, so this version is not a
+competitive prefill GEMM.
 
 The kernel uses ordinary FP32 scalar/vector accumulation. It does not yet map
-decoded tiles into Tensor Core matrix instructions, use shared-memory
-double-buffering, or autotune row/token tile shapes. Consequently it remains
-far slower than a resident BF16 cuBLAS GEMM and is 11-18% slower than the
-existing decode-then-GEMM path. Its demonstrated benefit is eliminating full
-BF16 weight materialization and reducing persistent plus temporary weight
-memory, not latency.
+decoded tiles into Tensor Core matrix instructions or use shared-memory
+double-buffering. It remains far slower than a resident BF16 cuBLAS GEMM, but
+the tuned kernel is now 1.16-1.20x faster than the existing decode-then-GEMM
+path while eliminating full BF16 weight materialization. This is a single-layer
+kernel result, not end-to-end model acceleration.
 
 ## Claim boundary
 
@@ -63,4 +64,6 @@ compute prototype: packed bytes directly produce Linear outputs. It does not
 support claims of an optimized INT4 Tensor Core kernel, end-to-end model
 speedup, production serving throughput, or exact cuBLAS numerical equivalence.
 Machine-readable measurements are in
-`results/raw/llama32_1b_nqrt4_qproj_fused_linear.json`.
+`results/raw/llama32_1b_nqrt4_qproj_fused_linear_tuned.json`. The tuning method
+and its hardware-specific claim boundary are recorded in
+`results/llama32_1b_nqrt4_fused_tuning.md`.
