@@ -14,6 +14,10 @@ from nestquant.runtime.triton_tiled_decode import (
     _generate_stateless_dither_triton,
     dequantize_tiled_triton,
 )
+from nestquant.runtime.triton_fused_linear import (
+    linear_fused_triton,
+    prepare_fused_linear,
+)
 
 
 @unittest.skipUnless(triton_available(), "Triton CUDA runtime is unavailable")
@@ -131,6 +135,47 @@ class TestTritonUnpack(unittest.TestCase):
                     1, seed, block_offset=block_offset
                 )
                 self.assertTrue(torch.equal(actual, expected))
+
+    def test_fused_linear_uses_packed_resident_state_without_full_weight(self):
+        matrix = torch.randn(
+            12, 32, generator=torch.Generator().manual_seed(53)
+        ).cuda()
+        seed = 20261025
+        dither = generate_e8_dither_stateless(
+            48, seed, device="cuda"
+        ).reshape(12, 4, 8)
+        rows = quantize_rows(
+            matrix, q=14, betas=(0.25, 0.5, 0.75, 1.0), dither=dither
+        )
+        record = PackedNestQuantTensor.from_quantized_rows(
+            "weight", rows, dither_seed=seed
+        )
+        prepared = prepare_fused_linear(record)
+        inputs = torch.randn(
+            2, 3, 32, device="cuda", dtype=torch.bfloat16
+        )
+        reference_weight = record.dequantize_chunked(
+            device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=4
+        )
+        expected = torch.nn.functional.linear(inputs, reference_weight)
+        actual = linear_fused_triton(inputs, prepared)
+        error = (actual.float() - expected.float()).abs()
+        relative_l2 = torch.linalg.vector_norm(error) / torch.linalg.vector_norm(
+            expected.float()
+        )
+        self.assertEqual(actual.shape, (2, 3, 12))
+        self.assertLessEqual(error.max().item(), 0.0625)
+        self.assertLess(relative_l2.item(), 0.01)
+        packed_bytes = sum(
+            tensor.numel() * tensor.element_size()
+            for tensor in (
+                prepared.code_payload,
+                prepared.beta_payload,
+                prepared.row_norms,
+                prepared.beta_table,
+            )
+        )
+        self.assertLess(packed_bytes, reference_weight.numel() * reference_weight.element_size())
 
 
 if __name__ == "__main__":
