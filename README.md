@@ -48,6 +48,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **存储路径与整模型 runtime 诊断**：同一 NQMC 的 112 条量化记录在 WSL ext4 与 Windows `/mnt/d` 上交替读取 7 轮，均值为 0.121/1.485 秒；ext4 上 warm lazy forward 为 0.298/0.314 秒，CUDA peak 846 MB，logits 与完整反量化基线逐比特一致，但仍慢于 78.18 ms 的 BF16 常驻基线。
 - **解码/GEMM 重叠边界**：双 CUDA stream 的隔离实验在 sequence length 2048 的 q→k、gate→up、up→down 上分别获得 1.21×/1.35×/1.10×，但 length 1/8 无一致收益；双流调度适合长上下文 prefill，不是逐 token 生成中物化 BF16 权重的通用解法。
 - **Packed-weight fused Linear 原型**：真实 2048×2048 q_proj 的 NQRT 常驻数据为 2.24 MB（BF16 权重的 26.66%），kernel 在 E8 解码后直接累加 Linear 输出，不生成完整 BF16 权重；sequence length 1/8/16 的临时峰值仅为输出大小。RTX 5070 上扫描 135 组 tile/warp 配置并用 100 次独立计时确认后，新默认配置使融合路径自身中位延迟降低 20%/29%/35%，正式 50 次基准比 decode-then-GEMM 快 1.16×/1.20×/1.20×；当前仍是单层、非 Tensor Core 原型，不能外推为完整模型加速。
+- **真实 Transformer block 接入**：新增可选择性替换标准 `nn.Linear`/Hadamard Linear 的 `FusedNQRTLinear`，首次调用按需读取 NQMC 并让 packed 流常驻 GPU。Llama block 0 的 Q/K/V/O 与 gate/up/down 七个投影从 121.63 MB BF16 降至 32.40 MB packed（26.64%）；但 sequence length 1/8/16 的稳态 block 延迟约 5.96/5.97/6.02 ms，慢于 BF16 权重常驻参考的 3.94/3.61/4.01 ms。该负结果说明下一步需要融合 QKV、gate/up 并利用 Tensor Core，而不是直接把当前标量内核扩展到全模型。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
 - **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **分块目标 dtype 解码**：row-range bit unpack 与 bit-exact dither replay 可直接写入 BF16；`down_proj` 的单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB，尚未接入 GEMM。
@@ -63,7 +64,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 | 真实低比特权重存储 | 已完成 NQMC | 打包文件大小、无 Hessian 回载、回载 PPL 一致性 |
 | 真实低比特激活/KV 存储 | 未完成 | 当前 A/KV 在运行时仍是浮点重构张量 |
 | compiled packed decode kernel | 已完成原型 | 证明真实 packed stream 可直接融合解码，且显著降低单 tensor 解码延迟/中间显存 |
-| Packed-weight fused compute | 单层原型完成 | packed NQRT 可不物化完整 BF16 权重而直接计算 Linear 输出 |
+| Packed-weight fused compute | 真实 block 原型完成 | 七个 packed NQRT 投影可不物化完整 BF16 权重完成注意力与 MLP block；显存下降但当前慢于 BF16 常驻参考 |
 | 优化低比特 GEMM kernel | 未完成 | 不能声称 INT4 Tensor Core GEMM、生产吞吐提升或端到端低比特推理加速 |
 
 train64 block-LDLQ NQMC 文件实测为 659,281,364 字节，能够在不加载 Hessian 的情况下重建权重并复现 PPL 10.276133。该路径仍将权重反量化到 BF16 Linear，因此不代表 INT4 推理加速。
@@ -85,7 +86,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 165 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归与 packed fused Linear、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-25 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，165 项及 9 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 168 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear 及真实 block 选择性替换、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-25 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，168 项及 9 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 
