@@ -115,7 +115,7 @@ def main() -> None:
         "device_name": torch.cuda.get_device_name(device),
         "tensors": results,
         "claim_boundary": (
-            "Only fixed-width unpack is compiled. Dither replay, E8 nearest-point "
+            "Only fixed-width unpack is compiled. Dither generation, E8 nearest-point "
             "reconstruction, row scaling, and BF16 materialization remain PyTorch."
         ),
     }

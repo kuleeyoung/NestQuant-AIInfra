@@ -22,6 +22,7 @@
 | NestQuant block-LDLQ W4 | 10.276601 | 64 个训练窗口校准 |
 | NestQuant block-LDLQ W4，共享校准 | 10.277472 | 与 QuaRot 相同的 128 个随机训练窗口；量化 `lm_head` |
 | NestQuant block-LDLQ W4，同范围 | **10.211760** | 128 个共享窗口；与 QuaRot 一样保留 `lm_head` BF16 |
+| NQRT v4 stateless dither + 论文式 Hadamard + shared128 LDLQ W4 | **10.070482** | 112/112 v4 record；完整 NQMC 回载；支持 GPU tile 随机访问 dither |
 | 论文式 Hadamard + shared128 LDLQ W4/W4KV4/W4A4/W4A4KV4 | **10.076886 / 10.515783 / 10.689190 / 11.232054** | NQRT v3 上游 E8 语义；A4/KV4 为质量仿真 |
 | 论文式 Hadamard + shared128 LDLQ W4A4 | **10.689190** | NQRT v3；A4 直接作用于局部 `X H`；固定上游全局 beta |
 | NestQuant W4KV4，共享校准 | 10.668994 | 同一 NQMC W4；E8 post-RoPE K/V fake quant |
@@ -43,6 +44,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **模型权重量化**：独立 E8 block W4、8-column block-LDLQ、Hessian 坐标旋转和 QA-LDLQ 适配。
 - **激活与 KV**：七类 Llama Linear 输入 A4；post-RoPE Q/K 匹配旋转；逐 attention-head KV4。
 - **真实权重容器**：NQPK/NQRT/NQMC 固定宽度码流、beta ID、row norm、dither 状态、共享权重别名及完整模型回载。
+- **NQRT v4 与 compiled runtime 原型**：stateless random-access dither 在 CPU/CUDA 与任意分块下逐比特一致；真实 1B checkpoint PPL 10.070482；Triton 定宽拆包已通过真实权重验证，但尚未实现融合低比特 GEMM。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
 - **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **分块目标 dtype 解码**：row-range bit unpack 与 bit-exact dither replay 可直接写入 BF16；`down_proj` 的单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB，尚未接入 GEMM。
@@ -160,6 +162,7 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [局部 Hadamard + shared128 LDLQ W4/W4KV4/W4A4/W4A4KV4 递进](results/llama32_1b_paper_hadamard_w4a4kv4_progression.md)
 - [固定上游 E8 边界语义、逐阶段数值对齐与旧 checkpoint 兼容](results/fixed_upstream_codec_alignment.md)
 - [NQRT v3 上游 E8 语义最佳 W4 checkpoint 与完整 PPL](results/llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md)
+- [NQRT v4 stateless dither、完整 W4 PPL 与 runtime 对照](results/llama32_1b_nqrt4_stateless_w4.md)
 - [NQRT v3 上游 E8 语义 W4/W4KV4/W4A4/W4A4KV4 递进](results/llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md)
 - [NQMC inspector 使用与成本边界](docs/nqmc_inspection.md)
 - [Llama-3.2-1B NQRT v3 checkpoint 审计](results/llama32_1b_nqrt3_checkpoint_inspection.md)
