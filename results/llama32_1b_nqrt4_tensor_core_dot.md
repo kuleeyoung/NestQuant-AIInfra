@@ -117,14 +117,18 @@ For long prefill, the large-M dispatch produces:
 
 | Sequence length | Resident BF16 block | Packed Tensor Core block | Scalar packed block | Dot speedup over scalar | Dot overhead vs BF16 |
 |---:|---:|---:|---:|---:|---:|
-| 32 | 2.9408 ms | 3.5856 ms | 8.2970 ms | 2.314x | 21.9% |
-| 64 | 3.0218 ms | 3.8294 ms | 14.5623 ms | 3.803x | 26.7% |
-| 128 | 2.9787 ms | 4.3292 ms | 26.6830 ms | 6.164x | 45.3% |
+| 32 | 3.0369 ms | 3.4252 ms | 8.2970 ms | 2.422x | 12.8% |
+| 64 | 3.0093 ms | 3.4713 ms | 14.5623 ms | 4.195x | 15.4% |
+| 128 | 3.2302 ms | 3.7180 ms | 26.6830 ms | 7.177x | 15.1% |
 
-The scalar-to-dot gain grows with token count and reaches an 83.8% latency
-reduction at length 128. cuBLAS also becomes more efficient at these matrix
-sizes, so eliminating repeated M-tile decode is necessary but not sufficient
-to beat the resident-BF16 path.
+These numbers include the later direct-residual-gather optimization described
+below. Relative to the preceding `where + sum` decoder, packed block latency
+falls by 4.5%/9.4%/14.1% at lengths 32/64/128. The resident-BF16 values are
+from the same gather run; the scalar packed column is the unchanged earlier
+baseline. The scalar-to-dot gain grows with token count and reaches an 86.1%
+latency reduction at length 128. cuBLAS also becomes more efficient at these
+matrix sizes, so reducing decode work is necessary but not sufficient to beat
+the resident-BF16 path.
 
 ## Kernel attribution
 
@@ -157,16 +161,41 @@ percentages are an attribution experiment rather than an exact additive timing
 model. They nevertheless identify stateless dither and E8 reconstruction—not
 the BF16 Tensor Core dot—as the next optimization target.
 
+### Split ablation and direct residual gather
+
+A second compile-time ablation separately removes the dither E8 projection,
+the coarse modulo-q E8 projection, or the RNG hash. The two E8 effects are not
+additive: removing code changes register pressure, scheduling, and occupancy,
+and the `no_rng` mode is sometimes slower. Therefore these timings do not
+support an exact per-operation cost model. Across q/gate/down at sequence
+lengths 1 and 128, jointly removing both E8 projections remains the stable
+signal, cutting 43.3%-76.2% of kernel time; RNG alone is not the primary target.
+
+Both nearest-E8 calls previously selected the winning residual with an
+eight-way `where` followed by `sum`. Replacing that sequence with `tl.gather`
+plus a length-one reduction preserves the exact selected coordinate and passes
+the CUDA numerical regression. A 100-repeat retune gives:
+
+| Projection | Seq 1 before | Seq 1 gather | Change | Seq 128 before | Seq 128 gather | Change |
+|---|---:|---:|---:|---:|---:|---:|
+| q | 0.2029 ms | 0.1808 ms | -10.9% | 0.2173 ms | 0.1887 ms | -13.2% |
+| gate | 0.6364 ms | 0.5105 ms | -19.8% | 0.7150 ms | 0.5507 ms | -23.0% |
+| down | 0.6452 ms | 0.5802 ms | -10.1% | 0.6913 ms | 0.6524 ms | -5.6% |
+
+This is a semantics-preserving kernel optimization, unlike the invalid-output
+ablation modes. It shows that the E8 bottleneck was partly an implementation
+artifact rather than an unavoidable property of lattice decoding.
+
 ## Decision and next step
 
 The Tensor Core path replaces the scalar fused path for independent packed
 Linears. Grouped QKV remains optional because its scalar grouped kernel does not
 share this dot implementation. The large-M dispatch addresses repeated E8
-reconstruction through length 128. The profile and compile-time ablation now
-identify RNG/E8 reconstruction as the next target. The next experiment should
-separately remove the first dither nearest-point projection and the second
-modulo-q projection, then optimize the dominant one without changing the
-bit-exact codec contract. The current kernel must still be
+reconstruction through length 128. Split ablation rules out RNG-only work as a
+stable target, while direct residual gather removes one concrete inefficiency
+from both E8 projections. The next experiment should inspect the remaining E8
+round/parity/error reductions and generated register usage without changing
+the bit-exact codec contract. The current kernel must still be
 described as packed NQRT decode feeding BF16 Tensor Core MMA, not INT4 Tensor
 Core GEMM.
 

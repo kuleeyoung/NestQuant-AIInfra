@@ -55,6 +55,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **Tensor Core block-dot 与真实 block 接入**：kernel 内按 `[N,K/8,8]` 独立恢复 E8 block，reshape 为 BF16 权重 tile 后交给 `tl.dot`；PTX 已核验包含 `mma.sync.aligned.m16n8k16...bf16`。四类 Llama 投影形状的 192 个配置均成功，最佳路径相对标量 fused kernel 加速 1.537～2.315×。接入 block 0 七个投影并按每后端 100 次背靠背测量后，seq 1/8/16 的 Tensor Core/scalar 延迟为 3.9220/4.0625/3.8935 ms 对 6.7680/6.6069/6.1182 ms，即加速 1.726×/1.626×/1.571×；packed 权重仍仅占 BF16 的 26.64%，但 block 仍比自身 BF16 常驻参考慢 18.6%～28.0%。这是“packed 解码到 BF16 后使用 Tensor Core”，不是 INT4 Tensor Core GEMM，也不是端到端模型加速。
 - **长 prefill 解码复用**：将 `BLOCK_M` 从固定 16 扩展到 32/64/128，四类投影的 612 个候选均成功。seq 32/64/128 的真实 block Tensor Core/scalar 延迟为 3.5856/3.8294/4.3292 ms 对 8.2970/14.5623/26.6830 ms，即加速 2.314×/3.803×/6.164×；seq128 延迟下降 83.8%，证明跨 M tile 重复恢复权重是旧路径的主要长序列瓶颈。Tensor Core block 仍比 BF16 常驻慢 21.9%/26.7%/45.3%，下一步需要 kernel 级剖析而非继续盲目增大 tile。
 - **Tensor Core kernel 剖析**：PyTorch Profiler 中七个 NQRT kernel 占 packed block GPU 自耗时的 79.3%～85.4%，其中 gate/up/down 合计占 fused Linear 时间约 71%～73%。保持 packed 读取、coset、缩放和 `tl.dot`、仅编译期移除 RNG 与两次 E8 投影的无语义消融，使 q/gate/down 在 seq 1/128 的 kernel 时间减少 61%～76%；因此下一目标是拆分并优化 dither/E8 重建，而不是 Hadamard 或继续增大 M tile。
+- **E8 分项消融与 `gather` 优化**：分开移除 dither E8、coarse E8 和 RNG hash 后，结果受寄存器压力与调度影响并不满足简单可加性，不能把时间精确分摊给单项；稳定结论仍是两次 E8 最近点搜索为主瓶颈，而 RNG 单独不是。将两处“8 路 `where` 选择后 `sum`”改成 `tl.gather` 直接抽取目标残差后，q/gate/down 在 seq 1/128 的单投影中位延迟下降 5.6%～23.0%；真实 block 的 seq 32/64/128 packed 延迟由 3.5856/3.8294/4.3292 ms 降至 3.4252/3.4713/3.7180 ms，即改善 4.5%/9.4%/14.1%，且保持数值回归通过。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
 - **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **分块目标 dtype 解码**：row-range bit unpack 与 bit-exact dither replay 可直接写入 BF16；`down_proj` 的单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB，尚未接入 GEMM。
@@ -92,7 +93,7 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 177 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear、共享 Hadamard 缓存、真实 block 选择性替换、grouped QKV/Pair 逐比特一致、Tensor Core block-dot 数值边界、短/长 token 实测 dispatch 及 coordinator 生命周期、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-25 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，177 项及 22 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 177 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear、共享 Hadamard 缓存、真实 block 选择性替换、grouped QKV/Pair 逐比特一致、Tensor Core block-dot 数值边界、短/长 token 实测 dispatch 及 coordinator 生命周期、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-25 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，177 项及 25 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
 
 ## Llama-3.2-1B PPL
 

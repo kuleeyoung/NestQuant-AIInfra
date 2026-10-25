@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.runtime.triton_dot_linear import (
+    linear_fused_dot_ablation_triton,
     linear_fused_dot_no_e8_ablation_triton,
     linear_fused_dot_triton,
 )
@@ -142,6 +143,20 @@ def main() -> None:
             result["no_e8_performance_ablation_warning"] = (
                 "Output is invalid; timing only removes RNG and E8 projections."
             )
+            result["decode_performance_ablation_seconds"] = {
+                mode: _measure(
+                    lambda m=mode, c=best_config: linear_fused_dot_ablation_triton(
+                        inputs, prepared, m, **c
+                    ),
+                    args.repeats,
+                )
+                for mode in (
+                    "no_rng",
+                    "no_dither_e8",
+                    "no_coarse_e8",
+                    "no_rng_or_e8",
+                )
+            }
         results.append(result)
     report = {
         "scope": "real packed NQRT Linear block-dot feasibility and local tuning",

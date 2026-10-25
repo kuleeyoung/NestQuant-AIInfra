@@ -95,12 +95,9 @@ if _TRITON_INSTALLED:
         odd = (tl.sum(rounded, axis=2).to(tl.int64) & 1) != 0
         residual = x - rounded
         selected = tl.argmax(tl.abs(residual), axis=2, tie_break_left=True)
+        selected_residual = tl.gather(residual, selected[:, :, None], axis=2)
         direction = tl.where(
-            tl.sum(
-                tl.where(coordinates == selected[:, :, None], residual, 0.0),
-                axis=2,
-            ) >= 0.0,
-            1.0, -1.0,
+            tl.sum(selected_residual, axis=2) >= 0.0, 1.0, -1.0
         )
         correction = tl.where(
             coordinates == selected[:, :, None], direction[:, :, None], 0.0
@@ -112,14 +109,11 @@ if _TRITON_INSTALLED:
         half_odd = (tl.sum(half_rounded, axis=2).to(tl.int64) & 1) != 0
         half_residual = shifted - half_rounded
         half_selected = tl.argmax(tl.abs(half_residual), axis=2, tie_break_left=True)
+        half_selected_residual = tl.gather(
+            half_residual, half_selected[:, :, None], axis=2
+        )
         half_direction = tl.where(
-            tl.sum(
-                tl.where(
-                    coordinates == half_selected[:, :, None], half_residual, 0.0
-                ),
-                axis=2,
-            ) >= 0.0,
-            1.0, -1.0,
+            tl.sum(half_selected_residual, axis=2) >= 0.0, 1.0, -1.0
         )
         half_correction = tl.where(
             coordinates == half_selected[:, :, None],
@@ -151,7 +145,7 @@ if _TRITON_INSTALLED:
         code_width: tl.constexpr,
         beta_width: tl.constexpr,
         has_bias: tl.constexpr,
-        full_e8_decode: tl.constexpr,
+        decode_ablation_mode: tl.constexpr,
         block_m: tl.constexpr,
         block_n: tl.constexpr,
         block_k: tl.constexpr,
@@ -204,19 +198,30 @@ if _TRITON_INSTALLED:
                 ),
             )
 
-            if full_e8_decode:
+            if decode_ablation_mode != 3:
                 counters = code_offsets.to(tl.int64)
-                random = (counters + seed) & 0x7FFFFFFF
-                random = random ^ (random >> 16)
-                random = (random * 1_103_515_245 + 12_345) & 0x7FFFFFFF
-                random = random ^ (random >> 13)
-                random = (random * 134_775_813 + 1) & 0x7FFFFFFF
-                random = random ^ (random >> 16)
-                uniform = random.to(tl.float32) * (2.0 / 2_147_483_648.0)
-                dither = uniform - _nearest_e8_3d(uniform, coordinates)
+                if decode_ablation_mode == 4:
+                    # Performance-only full-shape values: retain counter
+                    # conversion and both E8 projections, remove the hash.
+                    uniform = (counters & 1023).to(tl.float32) * (2.0 / 1024.0)
+                else:
+                    random = (counters + seed) & 0x7FFFFFFF
+                    random = random ^ (random >> 16)
+                    random = (random * 1_103_515_245 + 12_345) & 0x7FFFFFFF
+                    random = random ^ (random >> 13)
+                    random = (random * 134_775_813 + 1) & 0x7FFFFFFF
+                    random = random ^ (random >> 16)
+                    uniform = random.to(tl.float32) * (2.0 / 2_147_483_648.0)
+                if decode_ablation_mode == 1:
+                    dither = uniform
+                else:
+                    dither = uniform - _nearest_e8_3d(uniform, coordinates)
                 shifted_coset = coset - dither
-                coarse = _nearest_e8_3d(shifted_coset / q, coordinates)
-                reconstructed = shifted_coset - q * coarse
+                if decode_ablation_mode == 2:
+                    reconstructed = shifted_coset
+                else:
+                    coarse = _nearest_e8_3d(shifted_coset / q, coordinates)
+                    reconstructed = shifted_coset - q * coarse
             else:
                 # Performance-only ablation: preserve packed reads, coset,
                 # scaling, and tl.dot while removing RNG and E8 projections.
@@ -270,7 +275,7 @@ def linear_fused_dot_triton(
     block_n: int = 16,
     block_k: int = 32,
     num_warps: int = 4,
-    _full_e8_decode: bool = True,
+    _decode_ablation_mode: int = 0,
 ) -> torch.Tensor:
     """Apply one prepared packed weight through a block-dot prototype."""
     if not isinstance(inputs, torch.Tensor) or not inputs.is_floating_point():
@@ -287,8 +292,8 @@ def linear_fused_dot_triton(
         raise ValueError("block_k must be 16, 32, 64, or 128")
     if num_warps not in {2, 4, 8}:
         raise ValueError("num_warps must be 2, 4, or 8")
-    if not isinstance(_full_e8_decode, bool):
-        raise TypeError("_full_e8_decode must be a bool")
+    if isinstance(_decode_ablation_mode, bool) or _decode_ablation_mode not in range(5):
+        raise ValueError("_decode_ablation_mode must be an integer from 0 through 4")
     if not _TRITON_INSTALLED:
         raise RuntimeError("Triton is not installed")
     record = prepared.record
@@ -327,7 +332,7 @@ def linear_fused_dot_triton(
         code_width=record.indices.code_bit_width,
         beta_width=record.indices.beta_index_bit_width,
         has_bias=bias is not None,
-        full_e8_decode=_full_e8_decode,
+        decode_ablation_mode=_decode_ablation_mode,
         block_m=block_m,
         block_n=block_n,
         block_k=block_k,
@@ -348,5 +353,34 @@ def linear_fused_dot_no_e8_ablation_triton(
     time. Packed reads, coset construction, scaling, and ``tl.dot`` remain.
     """
     return linear_fused_dot_triton(
-        inputs, prepared, bias, _full_e8_decode=False, **config
+        inputs, prepared, bias, _decode_ablation_mode=3, **config
+    )
+
+
+_PERFORMANCE_ABLATION_MODES = {
+    "no_dither_e8": 1,
+    "no_coarse_e8": 2,
+    "no_rng_or_e8": 3,
+    "no_rng": 4,
+}
+
+
+def linear_fused_dot_ablation_triton(
+    inputs: torch.Tensor,
+    prepared: PreparedNQRTLinear,
+    mode: str,
+    bias: torch.Tensor | None = None,
+    **config: int,
+) -> torch.Tensor:
+    """Run one invalid-output, compile-time kernel-attribution mode."""
+    if mode not in _PERFORMANCE_ABLATION_MODES:
+        raise ValueError(
+            "mode must be no_rng, no_dither_e8, no_coarse_e8, or no_rng_or_e8"
+        )
+    return linear_fused_dot_triton(
+        inputs,
+        prepared,
+        bias,
+        _decode_ablation_mode=_PERFORMANCE_ABLATION_MODES[mode],
+        **config,
     )
