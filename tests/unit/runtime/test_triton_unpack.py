@@ -22,6 +22,7 @@ from nestquant.runtime.triton_grouped_linear import (
     linear_fused_pair_triton,
     linear_fused_qkv_triton,
 )
+from nestquant.runtime.triton_dot_linear import linear_fused_dot_triton
 
 
 @unittest.skipUnless(triton_available(), "Triton CUDA runtime is unavailable")
@@ -231,6 +232,36 @@ class TestTritonUnpack(unittest.TestCase):
         torch.cuda.synchronize()
         for grouped, independent in zip(actual, expected, strict=True):
             self.assertTrue(torch.equal(grouped, independent))
+
+    def test_dot_fused_linear_matches_dequantized_reference(self):
+        seed = 1889849671
+        matrix = torch.randn(
+            24, 64, generator=torch.Generator().manual_seed(89)
+        ).cuda()
+        dither = generate_e8_dither_stateless(
+            matrix.numel() // 8, seed, device="cuda"
+        ).reshape(24, 8, 8)
+        rows = quantize_rows(
+            matrix, q=14, betas=(0.25, 0.5, 0.75, 1.0), dither=dither
+        )
+        record = PackedNestQuantTensor.from_quantized_rows(
+            "dot.weight", rows, dither_seed=seed
+        )
+        prepared = prepare_fused_linear(record)
+        inputs = torch.randn(2, 3, 64, device="cuda", dtype=torch.bfloat16)
+        reference_weight = record.dequantize_chunked(
+            device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=8
+        )
+        expected = torch.nn.functional.linear(inputs, reference_weight)
+        actual = linear_fused_dot_triton(inputs, prepared)
+        torch.cuda.synchronize()
+        error = (actual.float() - expected.float()).abs()
+        relative_l2 = torch.linalg.vector_norm(error) / torch.linalg.vector_norm(
+            expected.float()
+        )
+        self.assertEqual(actual.shape, (2, 3, 24))
+        self.assertLessEqual(error.max().item(), 0.0625)
+        self.assertLess(relative_l2.item(), 0.01)
 
 
 if __name__ == "__main__":
