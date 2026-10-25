@@ -8,11 +8,13 @@ from .triton_fused_linear import (
     linear_fused_triton,
     prepare_fused_linear,
 )
+from .triton_grouped_linear import linear_fused_qkv_triton
 
 __all__ = [
     "dequantize_with_triton_unpack",
     "dequantize_tiled_triton",
     "linear_fused_triton",
+    "linear_fused_qkv_triton",
     "prepare_fused_linear",
     "PreparedNQRTLinear",
     "triton_available",

@@ -18,6 +18,7 @@ from nestquant.runtime.triton_fused_linear import (
     linear_fused_triton,
     prepare_fused_linear,
 )
+from nestquant.runtime.triton_grouped_linear import linear_fused_qkv_triton
 
 
 @unittest.skipUnless(triton_available(), "Triton CUDA runtime is unavailable")
@@ -176,6 +177,35 @@ class TestTritonUnpack(unittest.TestCase):
             )
         )
         self.assertLess(packed_bytes, reference_weight.numel() * reference_weight.element_size())
+
+    def test_grouped_qkv_matches_three_independent_fused_linears(self):
+        prepared = []
+        generator = torch.Generator().manual_seed(79)
+        for index, (rows_count, seed) in enumerate(zip(
+            (12, 8, 4), (20261025, 1703560109, 71600901), strict=True
+        )):
+            matrix = torch.randn(rows_count, 32, generator=generator).cuda()
+            dither = generate_e8_dither_stateless(
+                matrix.numel() // 8, seed, device="cuda"
+            ).reshape(rows_count, 4, 8)
+            rows = quantize_rows(
+                matrix, q=14, betas=(0.25, 0.5, 0.75, 1.0), dither=dither
+            )
+            record = PackedNestQuantTensor.from_quantized_rows(
+                f"projection_{index}.weight", rows, dither_seed=seed
+            )
+            prepared.append(prepare_fused_linear(record))
+
+        inputs = torch.randn(2, 3, 32, device="cuda", dtype=torch.bfloat16)
+        expected = tuple(linear_fused_triton(inputs, item) for item in prepared)
+        actual = linear_fused_qkv_triton(inputs, tuple(prepared))
+        torch.cuda.synchronize()
+
+        self.assertEqual(tuple(output.shape for output in actual), (
+            (2, 3, 12), (2, 3, 8), (2, 3, 4),
+        ))
+        for grouped, independent in zip(actual, expected, strict=True):
+            self.assertTrue(torch.equal(grouped, independent))
 
 
 if __name__ == "__main__":
