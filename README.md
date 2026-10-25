@@ -46,6 +46,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **真实权重容器**：NQPK/NQRT/NQMC 固定宽度码流、beta ID、row norm、dither 状态、共享权重别名及完整模型回载。
 - **NQRT v4 与 compiled runtime 原型**：stateless random-access dither 在 CPU/CUDA 与任意分块下逐比特一致；真实 1B checkpoint PPL 10.070482；单个 tiled Triton kernel 融合 packed code/beta 读取、dither、E8 重建和行缩放，真实 checkpoint 112/112 权重与参考 BF16 输出逐比特一致。它仍会物化 BF16 权重，尚未融合 GEMM。
 - **存储路径与整模型 runtime 诊断**：同一 NQMC 的 112 条量化记录在 WSL ext4 与 Windows `/mnt/d` 上交替读取 7 轮，均值为 0.121/1.485 秒；ext4 上 warm lazy forward 为 0.298/0.314 秒，CUDA peak 846 MB，logits 与完整反量化基线逐比特一致，但仍慢于 78.18 ms 的 BF16 常驻基线。
+- **解码/GEMM 重叠边界**：双 CUDA stream 的隔离实验在 sequence length 2048 的 q→k、gate→up、up→down 上分别获得 1.21×/1.35×/1.10×，但 length 1/8 无一致收益；双流调度适合长上下文 prefill，不是逐 token 生成中物化 BF16 权重的通用解法。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
 - **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **分块目标 dtype 解码**：row-range bit unpack 与 bit-exact dither replay 可直接写入 BF16；`down_proj` 的单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB，尚未接入 GEMM。
