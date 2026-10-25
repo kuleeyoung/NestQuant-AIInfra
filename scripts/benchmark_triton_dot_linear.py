@@ -57,10 +57,16 @@ def main() -> None:
     parser.add_argument("--block-n", type=int, nargs="+", default=[16, 32])
     parser.add_argument("--block-k", type=int, nargs="+", default=[32, 64, 128])
     parser.add_argument("--num-warps", type=int, nargs="+", default=[4, 8])
+    parser.add_argument("--maxnreg", type=int, nargs="+", default=None)
     parser.add_argument("--repeats", type=int, default=20)
     parser.add_argument("--e8-ablation", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    maxnreg_values = (
+        [None]
+        if args.maxnreg is None
+        else [None if value == 0 else value for value in args.maxnreg]
+    )
     reader = NQMCFileReader(args.checkpoint, verify_checksum=False)
     _, record = reader.read_named_record(args.weight_name)
     if not isinstance(record, PackedNestQuantTensor):
@@ -80,14 +86,19 @@ def main() -> None:
         scalar_stats = _measure(lambda: linear_fused_triton(inputs, prepared), args.repeats)
         bf16_stats = _measure(lambda: F.linear(inputs, bf16_weight), args.repeats)
         candidates = []
-        for block_m, block_n, block_k, num_warps in itertools.product(
-            args.block_m, args.block_n, args.block_k, args.num_warps
+        for block_m, block_n, block_k, num_warps, maxnreg in itertools.product(
+            args.block_m,
+            args.block_n,
+            args.block_k,
+            args.num_warps,
+            maxnreg_values,
         ):
             config = {
                 "block_m": block_m,
                 "block_n": block_n,
                 "block_k": block_k,
                 "num_warps": num_warps,
+                "maxnreg": maxnreg,
             }
             try:
                 actual = linear_fused_dot_triton(inputs, prepared, **config)
@@ -132,7 +143,9 @@ def main() -> None:
         if args.e8_ablation and valid:
             best_config = {
                 name: valid[0][name]
-                for name in ("block_m", "block_n", "block_k", "num_warps")
+                for name in (
+                    "block_m", "block_n", "block_k", "num_warps", "maxnreg"
+                )
             }
             result["no_e8_performance_ablation_seconds"] = _measure(
                 lambda c=best_config: linear_fused_dot_no_e8_ablation_triton(
@@ -171,6 +184,7 @@ def main() -> None:
             "block_n": args.block_n,
             "block_k": args.block_k,
             "num_warps": args.num_warps,
+            "maxnreg": maxnreg_values,
         },
         "results": results,
         "claim_boundary": (

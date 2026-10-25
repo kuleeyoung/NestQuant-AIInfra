@@ -320,6 +320,12 @@ class TestTritonUnpack(unittest.TestCase):
                 torch.cuda.synchronize()
                 self.assertEqual(ablation.shape, actual.shape)
                 self.assertTrue(torch.isfinite(ablation).all().item())
+        capped = linear_fused_dot_triton(
+            inputs, prepared,
+            block_m=16, block_n=16, block_k=32, num_warps=4, maxnreg=64,
+        )
+        torch.cuda.synchronize()
+        torch.testing.assert_close(capped, actual, rtol=0.0, atol=0.0)
 
 
 if __name__ == "__main__":

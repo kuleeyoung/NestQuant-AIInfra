@@ -201,6 +201,23 @@ spill. Register pressure can still limit occupancy, but the next experiment
 must sweep an explicit register cap and measure the trade-off rather than
 assuming that spills already explain the remaining latency.
 
+That sweep tested default allocation and 64/56/48-register caps in both
+candidate orders. No global cap is valid: gate/down short-sequence cases
+usually regress, q sequence-128 does not improve, and apparent isolated gains
+change with measurement order. A focused 200-repeat q/o sequence-1 rerun also
+fails cross-projection replication: o-projection caps are usually 7%-17%
+slower. A long-prefill gate rerun shows no repeatable gain at lengths 32/64/128.
+The runtime dispatcher therefore keeps the compiler default. The benchmark
+retains `--maxnreg` (with `0` denoting the default) for future GPU-specific
+experiments, but register capping is closed for the RTX 5070 path.
+
+A second rejected candidate derived the half-integer `nearbyint(x - 0.5)` from
+the first rounded value, residual sign, and rounded-value parity. It preserved
+all measured errors but slowed q/gate/down at sequence lengths 1/128 by
+5.7%-16.1%. The hardware/compiler rounding path is already more efficient than
+the added compare, integer-conversion, and Boolean dependency chain, so the
+original second `nearbyint` remains.
+
 ## Decision and next step
 
 The Tensor Core path replaces the scalar fused path for independent packed

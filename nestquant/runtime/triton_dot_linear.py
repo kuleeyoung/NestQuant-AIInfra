@@ -275,6 +275,7 @@ def linear_fused_dot_triton(
     block_n: int = 16,
     block_k: int = 32,
     num_warps: int = 4,
+    maxnreg: int | None = None,
     _decode_ablation_mode: int = 0,
 ) -> torch.Tensor:
     """Apply one prepared packed weight through a block-dot prototype."""
@@ -292,6 +293,10 @@ def linear_fused_dot_triton(
         raise ValueError("block_k must be 16, 32, 64, or 128")
     if num_warps not in {2, 4, 8}:
         raise ValueError("num_warps must be 2, 4, or 8")
+    if maxnreg is not None and (
+        isinstance(maxnreg, bool) or maxnreg < 16 or maxnreg > 255
+    ):
+        raise ValueError("maxnreg must be None or an integer from 16 through 255")
     if isinstance(_decode_ablation_mode, bool) or _decode_ablation_mode not in range(5):
         raise ValueError("_decode_ablation_mode must be an integer from 0 through 4")
     if not _TRITON_INSTALLED:
@@ -337,6 +342,7 @@ def linear_fused_dot_triton(
         block_n=block_n,
         block_k=block_k,
         num_warps=num_warps,
+        maxnreg=maxnreg,
     )
     return output.reshape(*inputs.shape[:-1], rows)
 
