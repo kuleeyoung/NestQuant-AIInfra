@@ -37,7 +37,6 @@ class TestNQRTDotDispatch(unittest.TestCase):
             ((512, 2048, 16), (128, 8)),
             ((8192, 2048, 8), (64, 8)),
             ((2048, 8192, 1), (128, 8)),
-            ((2048, 8192, 128), (32, 4)),
         )
         for dimensions, expected in cases:
             with self.subTest(dimensions=dimensions):
@@ -45,6 +44,22 @@ class TestNQRTDotDispatch(unittest.TestCase):
                 self.assertEqual((config["block_k"], config["num_warps"]), expected)
                 self.assertEqual(config["block_m"], 16)
                 self.assertEqual(config["block_n"], 16)
+
+    def test_selects_large_m_tiles_for_long_prefill(self):
+        cases = (
+            ((2048, 2048, 32), (128, 32)),
+            ((2048, 2048, 64), (64, 32)),
+            ((512, 2048, 128), (128, 64)),
+            ((8192, 2048, 64), (64, 32)),
+            ((2048, 8192, 32), (32, 64)),
+            ((2048, 8192, 64), (64, 128)),
+            ((2048, 8192, 128), (128, 32)),
+        )
+        for dimensions, expected in cases:
+            with self.subTest(dimensions=dimensions):
+                config = select_nqrt_dot_config(*dimensions)
+                self.assertEqual((config["block_m"], config["block_k"]), expected)
+                self.assertEqual(config["num_warps"], 8)
 
     def test_rejects_nonpositive_dimensions(self):
         with self.assertRaisesRegex(ValueError, "must be positive"):

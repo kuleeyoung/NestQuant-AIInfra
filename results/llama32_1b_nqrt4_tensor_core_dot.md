@@ -70,9 +70,28 @@ measured points.
 | down | 2048 x 8192 | 2.003x | 2.049x | 2.063x | 1.691x |
 
 `BLOCK_N=16` wins at every measured point. The checked-in dispatcher preserves
-the measured K/warp choices for these shapes and uses K32/W4 as a conservative
-fallback for unknown shapes or token counts above 16. It is an empirical RTX
-5070 dispatch table, not a portable autotuner.
+the measured K/warp choices for these shapes. Unknown shapes use a conservative
+fallback selected only by token count. It is an empirical RTX 5070 dispatch
+table, not a portable autotuner.
+
+### Long-prefill M-tile sweep
+
+The first dispatch fixed `BLOCK_M=16`. That makes the same packed weight tile
+be reconstructed by 2/4/8 independent programs at sequence lengths 32/64/128.
+A follow-up sweep added M=32/64/128 across all four projection shapes. All 612
+candidate executions compiled and ran without failure.
+
+| Projection class | Seq 32: best M / speedup over M16 | Seq 64 | Seq 128 |
+|---|---:|---:|---:|
+| q/o | 128 / 1.799x | 64 / 3.109x | 128 / 4.307x |
+| k/v | 64 / 1.146x | 64 / 1.415x | 128 / 2.254x |
+| gate/up | 64 / 1.866x | 64 / 3.543x | 128 / 6.053x |
+| down | 32 / 1.835x | 64 / 3.320x | 128 / 5.810x |
+
+The result confirms repeated reconstruction across M tiles as a dominant
+long-prefill cost. The runtime dispatcher now preserves the measured M/N/K and
+warp choices through sequence length 128. Larger token counts reuse M128 as an
+explicitly unverified fallback; another GPU requires retuning.
 
 ## Real decoder-block integration
 
@@ -94,18 +113,34 @@ by 36.3-42.1%. It remains 18.6-28.0% slower than its resident-BF16 block
 baseline, so this is
 not evidence of end-to-end model speedup.
 
+For long prefill, the large-M dispatch produces:
+
+| Sequence length | Resident BF16 block | Packed Tensor Core block | Scalar packed block | Dot speedup over scalar | Dot overhead vs BF16 |
+|---:|---:|---:|---:|---:|---:|
+| 32 | 2.9408 ms | 3.5856 ms | 8.2970 ms | 2.314x | 21.9% |
+| 64 | 3.0218 ms | 3.8294 ms | 14.5623 ms | 3.803x | 26.7% |
+| 128 | 2.9787 ms | 4.3292 ms | 26.6830 ms | 6.164x | 45.3% |
+
+The scalar-to-dot gain grows with token count and reaches an 83.8% latency
+reduction at length 128. cuBLAS also becomes more efficient at these matrix
+sizes, so eliminating repeated M-tile decode is necessary but not sufficient
+to beat the resident-BF16 path.
+
 ## Decision and next step
 
 The Tensor Core path replaces the scalar fused path for independent packed
 Linears. Grouped QKV remains optional because its scalar grouped kernel does not
-share this dot implementation. The next bottleneck is repeated E8 reconstruction
-across M tiles, especially for longer prefill. A future kernel should either
-reuse decoded weight tiles across more token rows or adopt a genuinely low-bit
-MMA representation; the current kernel must still be described as packed NQRT
-decode feeding BF16 Tensor Core MMA, not INT4 Tensor Core GEMM.
+share this dot implementation. The large-M dispatch addresses repeated E8
+reconstruction through length 128. The next step is a kernel-level profile
+separating reconstruction instructions, Hadamard transforms, launch overhead,
+and Tensor Core work. Further optimization should follow that measured breakdown
+rather than increasing tile sizes again. The current kernel must still be
+described as packed NQRT decode feeding BF16 Tensor Core MMA, not INT4 Tensor
+Core GEMM.
 
 Machine-readable measurements are retained under `results/raw/` for q, k, gate,
-and down projections plus `llama32_1b_nqrt4_tensor_core_block0.json`.
+and down projections, the corresponding `block_m_sweep` runs, and short/long
+decoder-block comparisons.
 
 Reproduction entry points: `scripts/benchmark_triton_dot_linear.py` and
 `scripts/benchmark_fused_nqrt_block.py`.

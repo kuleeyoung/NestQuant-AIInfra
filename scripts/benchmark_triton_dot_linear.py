@@ -49,6 +49,7 @@ def main() -> None:
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("weight_name")
     parser.add_argument("--sequence-length", type=int, nargs="+", default=[1, 8, 16, 128])
+    parser.add_argument("--block-m", type=int, nargs="+", default=[16])
     parser.add_argument("--block-n", type=int, nargs="+", default=[16, 32])
     parser.add_argument("--block-k", type=int, nargs="+", default=[32, 64, 128])
     parser.add_argument("--num-warps", type=int, nargs="+", default=[4, 8])
@@ -74,11 +75,11 @@ def main() -> None:
         scalar_stats = _measure(lambda: linear_fused_triton(inputs, prepared), args.repeats)
         bf16_stats = _measure(lambda: F.linear(inputs, bf16_weight), args.repeats)
         candidates = []
-        for block_n, block_k, num_warps in itertools.product(
-            args.block_n, args.block_k, args.num_warps
+        for block_m, block_n, block_k, num_warps in itertools.product(
+            args.block_m, args.block_n, args.block_k, args.num_warps
         ):
             config = {
-                "block_m": 16,
+                "block_m": block_m,
                 "block_n": block_n,
                 "block_k": block_k,
                 "num_warps": num_warps,
@@ -130,6 +131,12 @@ def main() -> None:
         "weight_shape": [record.indices.shape[0], record.feature_count],
         "device_name": torch.cuda.get_device_name(),
         "repeats": args.repeats,
+        "search_space": {
+            "block_m": args.block_m,
+            "block_n": args.block_n,
+            "block_k": args.block_k,
+            "num_warps": args.num_warps,
+        },
         "results": results,
         "claim_boundary": (
             "tl.dot expresses a Tensor-Core-oriented dataflow, but generated "

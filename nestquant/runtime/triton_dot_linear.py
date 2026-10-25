@@ -32,7 +32,36 @@ def select_nqrt_dot_config(
     if min(out_features, in_features, token_count) < 1:
         raise ValueError("feature dimensions and token_count must be positive")
     if token_count > 16:
-        return {"block_m": 16, "block_n": 16, "block_k": 32, "num_warps": 4}
+        if in_features == 2048 and out_features == 2048:
+            block_m = 64 if 32 < token_count <= 64 else 128
+            return {
+                "block_m": block_m, "block_n": 16,
+                "block_k": 32, "num_warps": 8,
+            }
+        if in_features == 2048 and out_features == 512:
+            return {
+                "block_m": 64 if token_count <= 64 else 128,
+                "block_n": 16,
+                "block_k": 32 if token_count <= 64 else 64,
+                "num_warps": 8,
+            }
+        if in_features == 2048 and out_features == 8192:
+            return {
+                "block_m": 64 if token_count <= 64 else 128,
+                "block_n": 16, "block_k": 32, "num_warps": 8,
+            }
+        if in_features == 8192 and out_features == 2048:
+            block_m = 32 if token_count <= 32 else (64 if token_count <= 64 else 128)
+            block_k = 64 if token_count <= 32 else (128 if token_count <= 64 else 32)
+            return {
+                "block_m": block_m, "block_n": 16,
+                "block_k": block_k, "num_warps": 8,
+            }
+        block_m = 32 if token_count <= 32 else (64 if token_count <= 64 else 128)
+        return {
+            "block_m": block_m, "block_n": 16,
+            "block_k": 32, "num_warps": 8,
+        }
     if in_features == 8192 and out_features == 2048:
         return {"block_m": 16, "block_n": 16, "block_k": 128, "num_warps": 8}
     if in_features == 2048 and out_features == 512:
@@ -245,8 +274,8 @@ def linear_fused_dot_triton(
         raise ValueError("dot fused Linear requires CUDA inputs")
     if inputs.dtype not in {torch.float16, torch.bfloat16, torch.float32}:
         raise ValueError("inputs must use float16, bfloat16, or float32")
-    if block_m not in {16, 32, 64} or block_n not in {16, 32, 64}:
-        raise ValueError("block_m and block_n must be 16, 32, or 64")
+    if block_m not in {16, 32, 64, 128} or block_n not in {16, 32, 64}:
+        raise ValueError("block_m must be 16, 32, 64, or 128; block_n must be 16, 32, or 64")
     if block_k not in {16, 32, 64, 128}:
         raise ValueError("block_k must be 16, 32, 64, or 128")
     if num_warps not in {2, 4, 8}:
