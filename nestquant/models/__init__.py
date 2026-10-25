@@ -10,6 +10,7 @@ from .lazy_model import LazyNQMCConversionReport, convert_model_to_lazy_nqmc_
 from .fused_linear import (
     FusedNQRTConversionReport,
     FusedNQRTLinear,
+    SharedHadamardCache,
     convert_linears_to_fused_nqrt_,
 )
 from .quantization import quantize_nestquant_w4_, quantize_rtn_w4_
@@ -27,6 +28,7 @@ __all__ = [
     "HadamardRotatedLinear",
     "FusedNQRTConversionReport",
     "FusedNQRTLinear",
+    "SharedHadamardCache",
     "LazyNQMCLinear",
     "LazyNQMCConversionReport",
     "LazyNQMCWeightCache",

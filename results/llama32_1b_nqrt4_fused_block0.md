@@ -40,11 +40,11 @@ Every warmed path is measured 30 times with CUDA synchronization.
 
 | Sequence length | Resident BF16 block | Packed fused block | Fused / BF16 speed | Max absolute error | Relative L2 error |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 3.9380 ms | 5.9617 ms | 0.661x | 0.007813 | 0.876% |
-| 8 | 3.6101 ms | 5.9670 ms | 0.605x | 0.023438 | 0.936% |
-| 16 | 4.0053 ms | 6.0214 ms | 0.665x | 0.062500 | 1.135% |
+| 1 | 3.8222 ms | 5.9640 ms | 0.641x | 0.007813 | 0.876% |
+| 8 | 3.8026 ms | 5.8931 ms | 0.645x | 0.023438 | 0.936% |
+| 16 | 3.5654 ms | 5.9380 ms | 0.600x | 0.062500 | 1.135% |
 
-The packed block is 1.50-1.65x slower than a block whose decoded BF16 weights
+The packed block is 1.55-1.67x slower than a block whose decoded BF16 weights
 are already resident. The isolated q-projection kernel previously beat a path
 that decoded a full matrix on every call; that comparison does not imply it can
 beat cuBLAS after the decode cost has been amortized. Integrating seven fused
@@ -66,6 +66,19 @@ share the same input (Q/K/V and gate/up) and move the dot products toward
 Tensor Core operations; merely replacing more PyTorch Linears with the current
 scalar-accumulation kernel will increase end-to-end latency.
 
+### Shared-Hadamard ablation
+
+The integrated adapter now shares one input Hadamard result across Q/K/V and
+one across gate/up. A consumption-counted cache clears after exactly three or
+two users, respectively, so repeated benchmark calls cannot reuse a previous
+block invocation's transform. Relative to the original fused block, this
+changes median latency from 5.9617/5.9670/6.0214 ms to
+5.9640/5.8931/5.9380 ms for sequence lengths 1/8/16: no improvement at length
+1 and only 1.3-1.4% at lengths 8/16. Repeated Hadamard work is therefore not
+the dominant bottleneck. The next meaningful optimization must reduce the
+seven packed dot-product kernels and their launch overhead, not continue
+micro-optimizing the input transform.
+
 Machine-readable measurements are in
-`results/raw/llama32_1b_nqrt4_fused_block0.json`. Reproduction entry point:
+`results/raw/llama32_1b_nqrt4_fused_block0_shared_hadamard.json`. Reproduction entry point:
 `scripts/benchmark_fused_nqrt_block.py`.

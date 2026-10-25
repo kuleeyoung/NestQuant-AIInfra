@@ -15,6 +15,7 @@ from nestquant.core.rotation import hadamard
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.models.fused_linear import (
     FusedNQRTLinear,
+    SharedHadamardCache,
     convert_linears_to_fused_nqrt_,
 )
 from nestquant.models.rotated_linear import PAPER_HADAMARD_FORMAT
@@ -70,7 +71,24 @@ class TestFusedNQRTLinear(unittest.TestCase):
             self.assertIs(model.second, original_second)
             self.assertEqual(report.replaced_linear_names, ("first",))
             self.assertEqual(report.input_hadamard_names, ("first",))
+            self.assertEqual(report.shared_hadamard_groups, ())
             self.assertFalse(model.first.prepared)
+
+    def test_shared_hadamard_cache_reuses_only_the_same_input_object(self):
+        cache = SharedHadamardCache(2)
+        inputs = torch.randn(2, 8)
+        with torch.inference_mode():
+            first = cache.transform(inputs)
+            second = cache.transform(inputs)
+            third = cache.transform(inputs)
+        self.assertIs(first, second)
+        self.assertIsNot(second, third)
+        self.assertEqual(cache.hits, 1)
+        self.assertEqual(cache.misses, 2)
+        cache.clear()
+        with torch.inference_mode():
+            cache.transform(inputs)
+        self.assertEqual(cache.misses, 3)
 
     def test_validation_is_transactional(self):
         model = TinyProjectionPair().eval()

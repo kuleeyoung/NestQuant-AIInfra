@@ -215,6 +215,9 @@ def main() -> None:
         "device_name": torch.cuda.get_device_name(),
         "repeats": args.repeats,
         "replaced_linear_names": list(conversion.replaced_linear_names),
+        "shared_hadamard_groups": [
+            list(group) for group in conversion.shared_hadamard_groups
+        ],
         "bf16_weight_bytes": bf16_weight_bytes,
         "packed_device_bytes": packed_device_bytes,
         "first_fused_block_call_including_seven_record_reads_and_preparation_seconds": cold_prepare_seconds,
