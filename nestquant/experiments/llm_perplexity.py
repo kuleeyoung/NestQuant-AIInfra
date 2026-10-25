@@ -596,7 +596,9 @@ def _quantize_and_optionally_export(
         model_metadata={"model_id": model_id, "model_revision": model_revision,
                         "model_config": json.loads(model.config.to_json_string()),
                         "method": "nestquant_w4_quality_simulation", "q": q,
-                        "seed": seed, "dither_rng_device": "cpu",
+                        "seed": seed,
+                        "dither_mode": method_stats["dither_mode"],
+                        "dither_rng_device": method_stats["dither_rng_device"],
                         "encoder": encoder,
                         "encoder_metadata": ldlq_checkpoint_metadata,
                         "hadamard_rotation": (

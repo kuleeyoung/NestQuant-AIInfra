@@ -8,6 +8,7 @@ import time
 import torch
 
 from ..core.quantizer import QuantizedRows
+from ..core.codec import generate_e8_dither_stateless
 from ..core.tensor_checkpoint import (
     PackedNestQuantTensor,
     _DTYPE_TO_NAME,
@@ -78,6 +79,17 @@ def dequantize_with_triton_unpack(
                 dither = record.dither[start:end].to(target_device)
             elif generated_dither is not None:
                 dither = generated_dither[start:end].to(target_device)
+            elif record.dither_seed is not None:
+                blocks_per_row = record.indices.shape[1]
+                dither = generate_e8_dither_stateless(
+                    (end - start) * blocks_per_row,
+                    record.dither_seed,
+                    block_offset=start * blocks_per_row,
+                    device=target_device,
+                    dtype=record.output_dtype,
+                    codec_semantics=record.codec_semantics,
+                    algorithm=record.dither_algorithm,
+                ).reshape(end - start, blocks_per_row, 8)
             chunk = QuantizedRows(
                 codes=codes[start:end],
                 beta_indices=beta_indices[start:end],

@@ -41,7 +41,7 @@ class TestCheckpointInspection(unittest.TestCase):
         self.assertEqual(len(report["file_sha256"]), 64)
         records = report["record_inspection"]
         self.assertEqual(records["quantized_records_parsed"], 1)
-        self.assertEqual(records["nqrt_version_counts"], {"3": 1})
+        self.assertEqual(records["nqrt_version_counts"], {"4": 1})
         self.assertEqual(records["q_counts"], {"14": 1})
         self.assertEqual(records["beta_count_counts"], {"4": 1})
         self.assertEqual(records["dither_storage_counts"], {"none": 1})

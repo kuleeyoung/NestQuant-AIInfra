@@ -113,6 +113,8 @@ def _dither_mode(record: PackedNestQuantTensor) -> str:
         return "tensor"
     if record.dither_generator_state is not None:
         return "generator_state"
+    if record.dither_seed is not None:
+        return "stateless_seed"
     return "none"
 
 

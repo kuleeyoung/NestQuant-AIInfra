@@ -8,7 +8,7 @@ import unittest
 import torch
 
 from nestquant.core.packing import PackedNestQuantIndices, pack_nestquant_indices
-from nestquant.core.codec import generate_e8_dither
+from nestquant.core.codec import generate_e8_dither, generate_e8_dither_stateless
 from nestquant.core.quantizer import quantize_rows
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.core.codec import CURRENT_CODEC_SEMANTICS, LEGACY_CODEC_SEMANTICS
@@ -168,6 +168,34 @@ class TestNestQuantPacking(unittest.TestCase):
         self.assertTrue(torch.equal(restored.dequantize(device="cuda"), quantized.dequantize()))
         expected = restored.dequantize(device="cuda").to(torch.bfloat16)
         for rows_per_chunk in (1, 2, 7):
+            actual = restored.dequantize_chunked(
+                device="cuda", output_dtype=torch.bfloat16,
+                rows_per_chunk=rows_per_chunk,
+            )
+            self.assertTrue(torch.equal(actual, expected))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
+    def test_v4_stateless_dither_is_chunk_random_accessible(self):
+        weight = torch.randn(
+            (7, 24), generator=torch.Generator().manual_seed(37), dtype=torch.float32
+        ).cuda()
+        seed = 20261025
+        dither = generate_e8_dither_stateless(
+            21, seed, device="cuda"
+        ).reshape(7, 3, 8)
+        quantized = quantize_rows(
+            weight, q=14, betas=(0.5, 0.75, 1.0, 1.25), dither=dither
+        )
+        packed = PackedNestQuantTensor.from_quantized_rows(
+            "v4.weight", quantized, dither_seed=seed
+        )
+        blob = packed.to_bytes()
+        self.assertEqual(blob[4], 4)
+        restored = PackedNestQuantTensor.from_bytes(blob)
+        self.assertEqual(restored.dither_seed, seed)
+        self.assertIsNotNone(restored.dither_algorithm)
+        expected = quantized.dequantize().to(torch.bfloat16)
+        for rows_per_chunk in (1, 2, 4, 7):
             actual = restored.dequantize_chunked(
                 device="cuda", output_dtype=torch.bfloat16,
                 rows_per_chunk=rows_per_chunk,

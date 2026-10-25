@@ -15,6 +15,8 @@ from .lattice import E8_DIMENSION, nearest_e8
 UPSTREAM_CODEC_SEMANTICS = "e8_upstream_half_coset_tie_v1"
 LEGACY_CODEC_SEMANTICS = "e8_legacy_integer_coset_tie_v1"
 CURRENT_CODEC_SEMANTICS = UPSTREAM_CODEC_SEMANTICS
+STATELESS_DITHER_ALGORITHM = "lcg31_mix_v1"
+_STATELESS_MODULUS = 1 << 31
 
 
 def _tie_break(codec_semantics: str) -> str:
@@ -169,6 +171,57 @@ def generate_e8_dither(
         uniform = uniform.to(target_device)
     nearest, _ = nearest_e8(uniform, tie_break=_tie_break(codec_semantics))
     return uniform - nearest
+
+
+def generate_e8_dither_stateless(
+    count: int,
+    seed: int,
+    *,
+    block_offset: int = 0,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.float32,
+    codec_semantics: str = CURRENT_CODEC_SEMANTICS,
+    algorithm: str = STATELESS_DITHER_ALGORITHM,
+) -> torch.Tensor:
+    """Generate random-access E8 dither from global block coordinates.
+
+    The integer hash uses only signed int64 operations whose intermediate
+    values stay below ``2**63``. CPU and CUDA therefore execute the same
+    specified arithmetic. Uniform samples are constructed in float32 before
+    the requested output cast, making a block independent of call shape,
+    chunk size, execution order, and PyTorch RNG state.
+    """
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise ValueError("count must be a nonnegative integer")
+    if isinstance(block_offset, bool) or not isinstance(block_offset, int) or block_offset < 0:
+        raise ValueError("block_offset must be a nonnegative integer")
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < _STATELESS_MODULUS:
+        raise ValueError("seed must be an integer in [0, 2**31)")
+    if algorithm != STATELESS_DITHER_ALGORITHM:
+        raise ValueError(f"unsupported stateless dither algorithm: {algorithm}")
+    if not isinstance(dtype, torch.dtype) or not torch.empty((), dtype=dtype).is_floating_point():
+        raise TypeError("dtype must be a floating-point torch.dtype")
+    if block_offset + count > (_STATELESS_MODULUS // E8_DIMENSION):
+        raise ValueError("block range exceeds the stateless dither counter space")
+
+    target_device = torch.device(device)
+    first = block_offset * E8_DIMENSION
+    counters = torch.arange(
+        first, first + count * E8_DIMENSION,
+        device=target_device, dtype=torch.int64,
+    )
+    values = torch.remainder(counters + seed, _STATELESS_MODULUS)
+    # A coordinate hash rather than a sequential RNG: every output is a pure
+    # function of its counter. Constants and modulus are part of the v1 spec.
+    values = torch.bitwise_xor(values, values >> 16)
+    values = torch.remainder(values * 1_103_515_245 + 12_345, _STATELESS_MODULUS)
+    values = torch.bitwise_xor(values, values >> 13)
+    values = torch.remainder(values * 134_775_813 + 1, _STATELESS_MODULUS)
+    values = torch.bitwise_xor(values, values >> 16)
+    uniform = values.to(torch.float32).reshape(count, E8_DIMENSION)
+    uniform = uniform * (2.0 / float(_STATELESS_MODULUS))
+    nearest, _ = nearest_e8(uniform, tie_break=_tie_break(codec_semantics))
+    return (uniform - nearest).to(dtype)
 
 
 def _validate_dither(x: torch.Tensor, dither: torch.Tensor | None) -> None:

@@ -7,6 +7,7 @@ import torch
 
 from nestquant.core.codec import (
     LEGACY_CODEC_SEMANTICS, decode_nested, encode_nested, generate_e8_dither,
+    generate_e8_dither_stateless,
 )
 from nestquant.core.lattice import nearest_e8
 
@@ -86,6 +87,25 @@ class TestNestedE8Codec(unittest.TestCase):
         replay.set_state(state)
         cpu_dither = generate_e8_dither(4096, replay, device="cpu")
         self.assertTrue(torch.equal(cuda_dither, cpu_dither))
+
+    def test_stateless_dither_is_chunk_and_order_invariant(self):
+        complete = generate_e8_dither_stateless(37, 20261025)
+        chunks = torch.cat([
+            generate_e8_dither_stateless(11, 20261025, block_offset=0),
+            generate_e8_dither_stateless(19, 20261025, block_offset=11),
+            generate_e8_dither_stateless(7, 20261025, block_offset=30),
+        ])
+        reordered = generate_e8_dither_stateless(
+            19, 20261025, block_offset=11
+        )
+        self.assertTrue(torch.equal(complete, chunks))
+        self.assertTrue(torch.equal(reordered, complete[11:30]))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
+    def test_stateless_dither_is_bitwise_equal_on_cpu_and_cuda(self):
+        cpu = generate_e8_dither_stateless(4096, 20261025, device="cpu")
+        cuda = generate_e8_dither_stateless(4096, 20261025, device="cuda").cpu()
+        self.assertTrue(torch.equal(cuda, cpu))
 
 
 if __name__ == "__main__":

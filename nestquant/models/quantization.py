@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import time
 from typing import Callable, Sequence
@@ -10,7 +11,7 @@ import torch
 from torch import nn
 
 from ..core.beta_search import build_candidate_tables, select_beta_subset
-from ..core.codec import generate_e8_dither
+from ..core.codec import generate_e8_dither, generate_e8_dither_stateless
 from ..core.quantizer import QuantizedRows, quantize_rows, quantize_rows_ldlq
 from ..core.ldlq import block_unit_lower_ldl
 from ..core.tensor_checkpoint import PackedNestQuantTensor
@@ -71,6 +72,7 @@ def quantize_nestquant_w4_(
     qa_epsilon_constant: float = 155.0,
     ldlq_relative_damp: float = 0.01,
     excluded_linear_names: Sequence[str] = (),
+    dither_mode: str = "stateless",
 ) -> dict:
     """In-place NestQuant-style W4 quality simulation for every Linear weight.
 
@@ -92,6 +94,8 @@ def quantize_nestquant_w4_(
         raise ValueError("selected_beta_count must fit the candidate set")
     if rows_per_chunk < 1:
         raise ValueError("rows_per_chunk must be positive")
+    if dither_mode not in {"stateless", "generator_state"}:
+        raise ValueError("dither_mode must be stateless or generator_state")
     excluded_names = frozenset(excluded_linear_names)
     if any(not isinstance(name, str) or not name for name in excluded_names):
         raise ValueError("excluded_linear_names must contain non-empty strings")
@@ -114,8 +118,10 @@ def quantize_nestquant_w4_(
              "beta_coefficients_project_scale": list(coefficients),
              "candidate_codec_scales": [value / q for value in coefficients],
              "selected_beta_count": selected_beta_count, "seed": seed,
-             "dither_rng_device": "cpu",
-             "dither_state_captured": output_artifacts is not None,
+             "dither_mode": dither_mode,
+             "dither_rng_device": "cpu" if dither_mode == "generator_state" else "random_access",
+             "dither_state_captured": output_artifacts is not None and dither_mode == "generator_state",
+             "dither_seed_captured": output_artifacts is not None and dither_mode == "stateless",
              "weight_rotation": "none" if rotation_seed is None else "signed_hadamard_inverse_weight",
              "rotation_seed": rotation_seed,
              "ldlq": hessian_provider is not None,
@@ -252,9 +258,20 @@ def quantize_nestquant_w4_(
             timing["qa_adjust_and_ldl_factor_seconds"] = timing_hessian
 
         phase_started = time.perf_counter()
-        dither_state = bytes(generator.get_state().untyped_storage())
-        dither_cpu = generate_e8_dither(rows * (features // 8), generator,
-                                        device="cpu", dtype=torch.float32)
+        dither_state = None
+        dither_seed = None
+        if dither_mode == "generator_state":
+            dither_state = bytes(generator.get_state().untyped_storage())
+            dither_cpu = generate_e8_dither(
+                rows * (features // 8), generator,
+                device="cpu", dtype=torch.float32,
+            )
+        else:
+            dither_seed = _tensor_dither_seed(seed, name)
+            dither_cpu = generate_e8_dither_stateless(
+                rows * (features // 8), dither_seed,
+                device="cpu", dtype=torch.float32,
+            )
         dither_blocks_cpu = dither_cpu.reshape(rows, features // 8, 8)
         dither_blocks = dither_blocks_cpu.to(original.device)
         candidate_scales = tuple(value / q for value in coefficients)
@@ -332,7 +349,8 @@ def quantize_nestquant_w4_(
             )
             weight_name = f"{name}.weight" if name else "weight"
             staged_artifacts[weight_name] = PackedNestQuantTensor.from_quantized_rows(
-                weight_name, full_quantized, dither_generator_state=dither_state,
+                weight_name, full_quantized,
+                dither_generator_state=dither_state, dither_seed=dither_seed,
                 verify_generator_state=False,
             )
             timing["packing_seconds"] = elapsed_since(phase_started, original.device)
@@ -359,6 +377,11 @@ def quantize_nestquant_w4_(
     stats["storage_estimate"] = _estimate_nestquant_w4_storage(stats)
     stats["storage_estimate"]["input_embedding_weight_is_included"] = stats["input_embedding_weight_shared_with_linear"]
     return stats
+
+
+def _tensor_dither_seed(project_seed: int, tensor_name: str) -> int:
+    payload = f"nqrt-v4\0{project_seed}\0{tensor_name}".encode("utf-8")
+    return int.from_bytes(hashlib.sha256(payload).digest()[:4], "little") % (2**31)
 
 
 def _input_embedding_weight(model: nn.Module) -> torch.Tensor | None:

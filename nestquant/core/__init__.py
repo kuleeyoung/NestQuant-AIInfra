@@ -1,7 +1,12 @@
 """NestQuant algorithm primitives: lattice, codec, beta search, quantizer, packing."""
 
 from .lattice import E8_DIMENSION, nearest_e8
-from .codec import decode_nested, encode_nested, generate_e8_dither
+from .codec import (
+    decode_nested,
+    encode_nested,
+    generate_e8_dither,
+    generate_e8_dither_stateless,
+)
 from .beta_search import BetaSearchResult, build_candidate_tables, select_beta_subset
 from .quantizer import (
     QuantizedBlocks, QuantizedRows, quantize_e8_blocks, quantize_rows,
@@ -24,7 +29,7 @@ from .ldlq import (
 
 __all__ = [
     "E8_DIMENSION", "nearest_e8", "decode_nested", "encode_nested",
-    "generate_e8_dither", "BetaSearchResult", "build_candidate_tables",
+    "generate_e8_dither", "generate_e8_dither_stateless", "BetaSearchResult", "build_candidate_tables",
     "select_beta_subset", "QuantizedBlocks", "QuantizedRows", "quantize_e8_blocks",
     "quantize_rows", "quantize_rows_ldlq",
     "PackedNestQuantIndices", "pack_nestquant_indices", "PackedNestQuantTensor",

@@ -57,14 +57,16 @@ class TestModelQuantization(unittest.TestCase):
         self.assertEqual(estimate["row_norm_metadata_bits"], 128)
         self.assertEqual(estimate["total_bits"], 624)
         self.assertAlmostEqual(estimate["effective_bits_per_quantized_parameter"], 9.75)
-        self.assertTrue(stats["dither_state_captured"])
+        self.assertFalse(stats["dither_state_captured"])
+        self.assertTrue(stats["dither_seed_captured"])
         restored = artifacts["0.weight"].dequantize()
         self.assertTrue(torch.equal(restored, model[0].weight.detach()))
         self.assertIsNone(artifacts["0.weight"].dither)
-        self.assertIsNotNone(artifacts["0.weight"].dither_generator_state)
+        self.assertIsNone(artifacts["0.weight"].dither_generator_state)
+        self.assertIsNotNone(artifacts["0.weight"].dither_seed)
         restored_artifact = PackedNestQuantTensor.from_bytes(artifacts["0.weight"].to_bytes())
         self.assertTrue(torch.equal(restored_artifact.dequantize(), model[0].weight.detach()))
-        self.assertLess(len(restored_artifact.dither_generator_state), 8192)
+        self.assertEqual(restored_artifact.dither_seed, artifacts["0.weight"].dither_seed)
 
     def test_nestquant_can_preserve_an_exact_linear_name(self):
         model = nn.Sequential(nn.Linear(16, 4, bias=False), nn.Linear(4, 8, bias=False))
@@ -109,10 +111,10 @@ class TestModelQuantization(unittest.TestCase):
         )
 
         self.assertTrue(stats["ldlq"])
-        self.assertTrue(stats["dither_state_captured"])
+        self.assertTrue(stats["dither_seed_captured"])
         self.assertEqual(set(artifacts), {"0.weight"})
         # The Hessian is an encoder-only input. Codes, beta IDs, row norms and
-        # dither state are sufficient to reconstruct the committed weight.
+        # stateless dither metadata are sufficient to reconstruct the committed weight.
         packed = PackedNestQuantTensor.from_bytes(artifacts["0.weight"].to_bytes())
         self.assertTrue(torch.equal(packed.dequantize(), model[0].weight.detach()))
 

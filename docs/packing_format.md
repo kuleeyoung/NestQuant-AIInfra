@@ -28,13 +28,15 @@ The little-endian header uses `struct` format `<4sBBHHQQ`:
 
 It is followed by `ndim` little-endian uint64 dimensions, then the code payload and beta-index payload. The residue tensor must end in dimension 8; the beta-index shape is `codes.shape[:-1]`.
 
-## NQRT v3 single-tensor artifact
+## NQRT v4 single-tensor artifact
 
-`PackedNestQuantTensor` wraps the NQPK stream with the data needed to reconstruct one quantized matrix tensor: UTF-8 tensor name, q, beta cardinality and float beta values, row/feature dimensions, output dtype, per-row norms, dither reproduction data, and codec semantics. NQRT v3 has a fixed little-endian length header followed by compact JSON metadata, the NQPK container, row-norm bytes, and an optional dither payload. Float tensors support float16, bfloat16, float32, and float64, preserving their recorded dtype exactly.
+`PackedNestQuantTensor` wraps the NQPK stream with the data needed to reconstruct one quantized matrix tensor: UTF-8 tensor name, q, beta cardinality and float beta values, row/feature dimensions, output dtype, per-row norms, dither reproduction data, and codec semantics. NQRT v4 has a fixed little-endian length header followed by compact JSON metadata, the NQPK container, row-norm bytes, and an optional legacy dither payload. Float tensors support float16, bfloat16, float32, and float64, preserving their recorded dtype exactly.
 
 NQRT v3 writes `codec_semantics=e8_upstream_half_coset_tie_v1`, matching the fixed author implementation when the integer and half-integer E8 cosets are equidistant. Old NQRT v1/v2 records lack this field and are read as `e8_legacy_integer_coset_tie_v1`; this prevents historical residue codes from being silently decoded to a different boundary representative. See [codec semantics](codec_semantics.md).
 
-NQRT v2/v3 supports three dither modes: absent, exact tensor values, or a CPU `torch.Generator` state captured immediately before generation. State mode stores the compact RNG state and PyTorch version rather than one FP32 value per weight; the random stream is drawn on CPU, while the E8 nearest-point operation runs on the requested model device. The exact realization is reproduced on CPU during reconstruction. CPU and CUDA dither values matched bit-for-bit in a 4096-block check on the current runtime. Matching the recorded PyTorch version is required for a reproducibility claim because RNG behavior is runtime-version dependent. The parser also retains backward reading support for NQRT v1 tensor-dither files.
+NQRT v4 adds a fourth mode: a seed plus the versioned `lcg31_mix_v1` random-access algorithm. Each E8 block is addressed by its global block index, so a decoder can generate only the current GPU tile without replaying earlier random values. CPU/CUDA output and arbitrary chunk partitions are bitwise equal in the validated runtime. See [the v4 specification](nqrt_v4_stateless_dither.md).
+
+NQRT v2/v3 generator-state mode remains readable. It stores the compact CPU `torch.Generator` state and PyTorch version rather than one FP32 value per weight, but exact reconstruction must replay the full sequential stream. Matching the recorded PyTorch version remains required for a v2/v3 reproducibility claim. The parser also retains backward reading support for NQRT v1 tensor-dither files.
 
 This is a self-contained **single-tensor serialization**, not a full model checkpoint. It has no model-wide tensor index, tied-weight handling, architecture/config file, tokenizer, optimizer state, or inference kernel. Its size must not be presented as a model-level compression ratio.
 

@@ -4,7 +4,7 @@ import unittest
 
 import torch
 
-from nestquant.core.codec import generate_e8_dither
+from nestquant.core.codec import generate_e8_dither, generate_e8_dither_stateless
 from nestquant.core.packing import pack_nestquant_indices
 from nestquant.core.quantizer import quantize_rows
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
@@ -62,6 +62,28 @@ class TestTritonUnpack(unittest.TestCase):
         )
         actual = dequantize_with_triton_unpack(
             record, device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=3
+        )
+        self.assertTrue(torch.equal(actual, expected))
+
+    def test_hybrid_decoder_supports_v4_random_access_dither(self):
+        matrix = torch.randn(
+            9, 24, generator=torch.Generator().manual_seed(31)
+        ).cuda()
+        seed = 20261025
+        dither = generate_e8_dither_stateless(
+            27, seed, device="cuda"
+        ).reshape(9, 3, 8)
+        rows = quantize_rows(
+            matrix, q=14, betas=(0.25, 0.5, 0.75, 1.0), dither=dither
+        )
+        record = PackedNestQuantTensor.from_quantized_rows(
+            "weight", rows, dither_seed=seed
+        )
+        expected = record.dequantize_chunked(
+            device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=4
+        )
+        actual = dequantize_with_triton_unpack(
+            record, device="cuda", output_dtype=torch.bfloat16, rows_per_chunk=2
         )
         self.assertTrue(torch.equal(actual, expected))
 
