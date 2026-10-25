@@ -72,11 +72,45 @@ first call reads and prepares all 112 packed records and compiles/warms Triton
 variants. This cost is separated from steady-state latency. It is not included
 in the BF16-vs-packed steady-state comparison.
 
-This is a batch-size-one, single-GPU end-to-end inference result for one fixed
-Llama revision. It is not a multi-user serving benchmark, multi-GPU result,
+This is a single-GPU end-to-end inference result for one fixed Llama revision
+and the measured batch sizes. It is not a multi-user serving benchmark, multi-GPU result,
 production INT4 GEMM result, or claim that packed inference is faster than
 BF16. The demonstrated engineering result is: a complete 1B model can execute
 with all quantized projection streams resident in packed form, Tensor Core
 packed compute substantially improves over scalar packed compute, and the
 memory/latency trade-off is now measured at model level rather than only at one
 decoder block.
+
+## Batch and long-context extension
+
+The same harness was extended to batch sizes 2 and 4 at sequence length 128,
+and batch size 1 at sequence length 2048. These runs use ten repeats for batch
+2/4 and five repeats for sequence 2048, so they are capacity and trend checks
+rather than a final low-noise serving leaderboard.
+
+| Batch | Seq | Path | Steady prefill | TTFT | TPOT | Decode tok/s | Peak allocation increment |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 2 | 128 | BF16 resident | 14.29 ms | 15.00 ms | 9.79 ms | 102.13 | 95.6 MB |
+| 2 | 128 | Scalar packed | 890.77 ms | 889.74 ms | 90.18 ms | 11.09 | 558.1 MB |
+| 2 | 128 | Tensor Core packed | 105.80 ms | 104.19 ms | 82.53 ms | 12.12 | 558.1 MB |
+| 4 | 128 | BF16 resident | 39.04 ms | 38.73 ms | 16.07 ms | 62.25 | 128.0 MB |
+| 4 | 128 | Scalar packed | 1,978.86 ms | 1,877.24 ms | 93.20 ms | 10.73 | 622.5 MB |
+| 4 | 128 | Tensor Core packed | 165.44 ms | 167.84 ms | 55.99 ms | 17.86 | 622.5 MB |
+| 1 | 2,048 | BF16 resident | 102.2 ms | 99.0 ms | 10.5 ms | 94.89 | 542.0 MB |
+| 1 | 2,048 | Scalar packed | 7,045.8 ms | 6,290.1 ms | 83.4 ms | 12.00 | 1,004.5 MB |
+| 1 | 2,048 | Tensor Core packed | 562.6 ms | 562.1 ms | 51.4 ms | 19.46 | 1,004.5 MB |
+
+At batch 4, the packed model's warm resident allocation is unchanged at about
+1.03 GB, while the BF16 model also keeps its roughly 2.39 GB resident state.
+The extra peak allocation is mostly activations and KV cache. This suggests
+that the current 1B checkpoint is not yet large enough for the RTX 5070 to show
+a packed-only capacity advantage at batch 2/4; both paths still fit.
+
+At sequence length 2,048, Tensor Core packed prefill is about 12.5x faster than
+scalar packed (562.6 ms versus 7,045.8 ms), but remains about 5.5x slower than
+BF16 resident. The result confirms that long-context M-tile reuse scales to the
+full model, while E8 decode remains the dominant latency cost.
+
+The raw extension measurements are retained at
+`results/raw/llama32_1b_full_e2e_batch2_4_seq128.json` and
+`results/raw/llama32_1b_full_e2e_seq2048.json`.

@@ -97,7 +97,7 @@ def _run_decode(
     model,
     input_ids: torch.Tensor,
     decode_tokens: int,
-) -> tuple[float, float, list[int]]:
+) -> tuple[float, float, list[list[int]]]:
     with torch.inference_mode():
         # Warm the cache-enabled prefill and one-token decode separately. The
         # first call may compile attention kernels or allocate cache storage;
@@ -118,7 +118,7 @@ def _run_decode(
         ttft = time.perf_counter() - started
         past = output.past_key_values
         next_token = output.logits[:, -1:].argmax(dim=-1)
-        generated = [int(next_token.item())]
+        generated = [next_token[:, 0].detach().cpu().tolist()]
         decode_values = []
         # Warm one decode transition from the timed prefill state, then measure
         # subsequent transitions. The warm transition is excluded from TPOT.
@@ -130,7 +130,7 @@ def _run_decode(
             )
             past = warm_output.past_key_values
             next_token = warm_output.logits[:, -1:].argmax(dim=-1)
-            generated.append(int(next_token.item()))
+            generated.append(next_token[:, 0].detach().cpu().tolist())
         for _ in range(max(0, decode_tokens - 2)):
             torch.cuda.synchronize()
             started = time.perf_counter()
@@ -143,7 +143,7 @@ def _run_decode(
             decode_values.append(time.perf_counter() - started)
             past = output.past_key_values
             next_token = output.logits[:, -1:].argmax(dim=-1)
-            generated.append(int(next_token.item()))
+            generated.append(next_token[:, 0].detach().cpu().tolist())
         tpot = statistics.mean(decode_values) if decode_values else 0.0
     return ttft, tpot, generated
 
@@ -225,6 +225,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--sequence-length", type=int, nargs="+", default=[1, 128])
+    parser.add_argument("--batch-size", type=int, nargs="+", default=[1])
     parser.add_argument("--decode-tokens", type=int, default=8)
     parser.add_argument("--repeats", type=int, default=10)
     parser.add_argument("--offline", action="store_true")
@@ -234,6 +235,8 @@ def main() -> None:
     args = parser.parse_args()
     if any(length < 1 for length in args.sequence_length):
         parser.error("sequence lengths must be positive")
+    if any(batch < 1 for batch in args.batch_size):
+        parser.error("batch sizes must be positive")
     if args.decode_tokens < 1 or args.repeats < 1:
         parser.error("decode-tokens and repeats must be positive")
 
@@ -253,47 +256,49 @@ def main() -> None:
 
     generator = torch.Generator(device="cuda").manual_seed(20261025)
     all_results = []
-    for sequence_length in args.sequence_length:
-        input_ids = torch.randint(
-            0,
-            vocab_size,
-            (1, sequence_length),
-            device="cuda",
-            generator=generator,
-        )
-        path_results = []
-        reference_logits = None
-        for mode in args.modes:
-            result = _benchmark_path(
-                args.checkpoint,
-                model_id,
-                revision,
-                reader,
-                input_ids,
-                mode=mode,
-                repeats=args.repeats,
-                decode_tokens=args.decode_tokens,
-                offline=args.offline,
-                names=names,
+    for batch_size in args.batch_size:
+        for sequence_length in args.sequence_length:
+            input_ids = torch.randint(
+                0,
+                vocab_size,
+                (batch_size, sequence_length),
+                device="cuda",
+                generator=generator,
             )
-            logits = result.pop("first_logits")
-            if reference_logits is None:
-                reference_logits = logits
-            error = logits.float() - reference_logits.float()
-            result["max_abs_logit_error_vs_first_mode"] = float(error.abs().max().item())
-            result["relative_l2_logit_error_vs_first_mode"] = float(
-                (torch.linalg.vector_norm(error)
-                 / torch.linalg.vector_norm(reference_logits.float())).item()
-            )
-            path_results.append(result)
-        all_results.append({
-            "sequence_length": sequence_length,
-            "input_ids_sha256": __import__("hashlib").sha256(
-                input_ids.cpu().numpy().tobytes()
-            ).hexdigest(),
-            "results": path_results,
-        })
-        del input_ids
+            path_results = []
+            reference_logits = None
+            for mode in args.modes:
+                result = _benchmark_path(
+                    args.checkpoint,
+                    model_id,
+                    revision,
+                    reader,
+                    input_ids,
+                    mode=mode,
+                    repeats=args.repeats,
+                    decode_tokens=args.decode_tokens,
+                    offline=args.offline,
+                    names=names,
+                )
+                logits = result.pop("first_logits")
+                if reference_logits is None:
+                    reference_logits = logits
+                error = logits.float() - reference_logits.float()
+                result["max_abs_logit_error_vs_first_mode"] = float(error.abs().max().item())
+                result["relative_l2_logit_error_vs_first_mode"] = float(
+                    (torch.linalg.vector_norm(error)
+                     / torch.linalg.vector_norm(reference_logits.float())).item()
+                )
+                path_results.append(result)
+            all_results.append({
+                "batch_size": batch_size,
+                "sequence_length": sequence_length,
+                "input_ids_sha256": __import__("hashlib").sha256(
+                    input_ids.cpu().numpy().tobytes()
+                ).hexdigest(),
+                "results": path_results,
+            })
+            del input_ids
 
     report = {
         "scope": "end-to-end Llama-3.2-1B packed NQRT inference benchmark",
@@ -302,6 +307,7 @@ def main() -> None:
         "model_revision": revision,
         "device_name": torch.cuda.get_device_name(),
         "sequence_lengths": args.sequence_length,
+        "batch_sizes": args.batch_size,
         "decode_tokens": args.decode_tokens,
         "repeats": args.repeats,
         "modes": args.modes,
@@ -309,8 +315,9 @@ def main() -> None:
         "quantized_projection_names": list(names),
         "results": all_results,
         "claim_boundary": (
-            "This is batch-size-one end-to-end inference evidence for the tested "
-            "Llama revision. It is not a multi-user serving or multi-GPU result."
+            "This is single-GPU end-to-end inference evidence for the tested "
+            "Llama revision and measured batch sizes. It is not a multi-user "
+            "serving or multi-GPU result."
         ),
     }
     rendered = json.dumps(report, indent=2) + "\n"
