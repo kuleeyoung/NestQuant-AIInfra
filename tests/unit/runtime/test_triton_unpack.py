@@ -23,6 +23,7 @@ from nestquant.runtime.triton_grouped_linear import (
     linear_fused_qkv_triton,
 )
 from nestquant.runtime.triton_dot_linear import (
+    linear_fused_dot_no_e8_ablation_triton,
     linear_fused_dot_triton,
     select_nqrt_dot_config,
 )
@@ -303,6 +304,12 @@ class TestTritonUnpack(unittest.TestCase):
         self.assertEqual(actual.shape, (2, 3, 24))
         self.assertLessEqual(error.max().item(), 0.0625)
         self.assertLess(relative_l2.item(), 0.01)
+        ablation = linear_fused_dot_no_e8_ablation_triton(
+            inputs, prepared, block_m=16, block_n=16, block_k=32, num_warps=4
+        )
+        torch.cuda.synchronize()
+        self.assertEqual(ablation.shape, actual.shape)
+        self.assertTrue(torch.isfinite(ablation).all().item())
 
 
 if __name__ == "__main__":

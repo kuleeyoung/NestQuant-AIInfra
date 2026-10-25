@@ -20,7 +20,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
-from nestquant.runtime.triton_dot_linear import linear_fused_dot_triton
+from nestquant.runtime.triton_dot_linear import (
+    linear_fused_dot_no_e8_ablation_triton,
+    linear_fused_dot_triton,
+)
 from nestquant.runtime.triton_fused_linear import linear_fused_triton, prepare_fused_linear
 from nestquant.runtime.triton_tiled_decode import dequantize_tiled_triton
 
@@ -54,6 +57,7 @@ def main() -> None:
     parser.add_argument("--block-k", type=int, nargs="+", default=[32, 64, 128])
     parser.add_argument("--num-warps", type=int, nargs="+", default=[4, 8])
     parser.add_argument("--repeats", type=int, default=20)
+    parser.add_argument("--e8-ablation", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     reader = NQMCFileReader(args.checkpoint, verify_checksum=False)
@@ -112,7 +116,7 @@ def main() -> None:
                 })
         valid = [item for item in candidates if item["status"] == "ok"]
         valid.sort(key=lambda item: item["seconds"]["median"])
-        results.append({
+        result = {
             "sequence_length": sequence_length,
             "bf16_resident_seconds": bf16_stats,
             "scalar_fused_seconds": scalar_stats,
@@ -123,7 +127,22 @@ def main() -> None:
             "dot_best": valid[0] if valid else None,
             "dot_candidates_by_median": valid,
             "failed_candidates": [item for item in candidates if item["status"] == "error"],
-        })
+        }
+        if args.e8_ablation and valid:
+            best_config = {
+                name: valid[0][name]
+                for name in ("block_m", "block_n", "block_k", "num_warps")
+            }
+            result["no_e8_performance_ablation_seconds"] = _measure(
+                lambda c=best_config: linear_fused_dot_no_e8_ablation_triton(
+                    inputs, prepared, **c
+                ),
+                args.repeats,
+            )
+            result["no_e8_performance_ablation_warning"] = (
+                "Output is invalid; timing only removes RNG and E8 projections."
+            )
+        results.append(result)
     report = {
         "scope": "real packed NQRT Linear block-dot feasibility and local tuning",
         "checkpoint": str(args.checkpoint.resolve()),
@@ -131,6 +150,7 @@ def main() -> None:
         "weight_shape": [record.indices.shape[0], record.feature_count],
         "device_name": torch.cuda.get_device_name(),
         "repeats": args.repeats,
+        "e8_performance_ablation": args.e8_ablation,
         "search_space": {
             "block_m": args.block_m,
             "block_n": args.block_n,

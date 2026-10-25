@@ -126,15 +126,47 @@ reduction at length 128. cuBLAS also becomes more efficient at these matrix
 sizes, so eliminating repeated M-tile decode is necessary but not sufficient
 to beat the resident-BF16 path.
 
+## Kernel attribution
+
+PyTorch Profiler was run for ten decoder-block calls after warm-up. At sequence
+length 1, the 70 NQRT kernel events (seven projections times ten calls) account
+for 85.4% of packed-path GPU self time. At length 128 they account for 79.3%.
+No other individual event approaches this share, so Hadamard, attention, and
+generic elementwise kernels are not the primary remaining bottleneck.
+
+The isolated projection timings attribute about 46-48% of the seven fused
+Linear time to gate/up, 25% to down, 17% to q/o, and 11% to k/v. The three MLP
+projections therefore contribute about 71-73% and are the highest-value target.
+
+A compile-time performance ablation preserves packed reads, coset construction,
+beta and row scaling, and the same `tl.dot`, but removes stateless RNG and both
+E8 nearest-point projections. Its output is intentionally invalid and is used
+only for timing:
+
+| Projection | Seq | Full kernel | No-RNG/E8 ablation | Time removed |
+|---|---:|---:|---:|---:|
+| q | 1 | 0.2095 ms | 0.0774 ms | 63.0% |
+| gate | 1 | 0.6620 ms | 0.1868 ms | 71.8% |
+| down | 1 | 0.6308 ms | 0.1502 ms | 76.2% |
+| q | 128 | 0.2486 ms | 0.0960 ms | 61.4% |
+| gate | 128 | 0.6962 ms | 0.1955 ms | 71.9% |
+| down | 128 | 0.7036 ms | 0.2229 ms | 68.3% |
+
+Deleting instructions can also change register pressure and occupancy, so the
+percentages are an attribution experiment rather than an exact additive timing
+model. They nevertheless identify stateless dither and E8 reconstruction—not
+the BF16 Tensor Core dot—as the next optimization target.
+
 ## Decision and next step
 
 The Tensor Core path replaces the scalar fused path for independent packed
 Linears. Grouped QKV remains optional because its scalar grouped kernel does not
 share this dot implementation. The large-M dispatch addresses repeated E8
-reconstruction through length 128. The next step is a kernel-level profile
-separating reconstruction instructions, Hadamard transforms, launch overhead,
-and Tensor Core work. Further optimization should follow that measured breakdown
-rather than increasing tile sizes again. The current kernel must still be
+reconstruction through length 128. The profile and compile-time ablation now
+identify RNG/E8 reconstruction as the next target. The next experiment should
+separately remove the first dither nearest-point projection and the second
+modulo-q projection, then optimize the dominant one without changing the
+bit-exact codec contract. The current kernel must still be
 described as packed NQRT decode feeding BF16 Tensor Core MMA, not INT4 Tensor
 Core GEMM.
 

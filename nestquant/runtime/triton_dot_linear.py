@@ -151,6 +151,7 @@ if _TRITON_INSTALLED:
         code_width: tl.constexpr,
         beta_width: tl.constexpr,
         has_bias: tl.constexpr,
+        full_e8_decode: tl.constexpr,
         block_m: tl.constexpr,
         block_n: tl.constexpr,
         block_k: tl.constexpr,
@@ -203,18 +204,23 @@ if _TRITON_INSTALLED:
                 ),
             )
 
-            counters = code_offsets.to(tl.int64)
-            random = (counters + seed) & 0x7FFFFFFF
-            random = random ^ (random >> 16)
-            random = (random * 1_103_515_245 + 12_345) & 0x7FFFFFFF
-            random = random ^ (random >> 13)
-            random = (random * 134_775_813 + 1) & 0x7FFFFFFF
-            random = random ^ (random >> 16)
-            uniform = random.to(tl.float32) * (2.0 / 2_147_483_648.0)
-            dither = uniform - _nearest_e8_3d(uniform, coordinates)
-            shifted_coset = coset - dither
-            coarse = _nearest_e8_3d(shifted_coset / q, coordinates)
-            reconstructed = shifted_coset - q * coarse
+            if full_e8_decode:
+                counters = code_offsets.to(tl.int64)
+                random = (counters + seed) & 0x7FFFFFFF
+                random = random ^ (random >> 16)
+                random = (random * 1_103_515_245 + 12_345) & 0x7FFFFFFF
+                random = random ^ (random >> 13)
+                random = (random * 134_775_813 + 1) & 0x7FFFFFFF
+                random = random ^ (random >> 16)
+                uniform = random.to(tl.float32) * (2.0 / 2_147_483_648.0)
+                dither = uniform - _nearest_e8_3d(uniform, coordinates)
+                shifted_coset = coset - dither
+                coarse = _nearest_e8_3d(shifted_coset / q, coordinates)
+                reconstructed = shifted_coset - q * coarse
+            else:
+                # Performance-only ablation: preserve packed reads, coset,
+                # scaling, and tl.dot while removing RNG and E8 projections.
+                reconstructed = coset
 
             packed_beta = tl.load(
                 beta_payload + block_ids // betas_per_byte,
@@ -264,6 +270,7 @@ def linear_fused_dot_triton(
     block_n: int = 16,
     block_k: int = 32,
     num_warps: int = 4,
+    _full_e8_decode: bool = True,
 ) -> torch.Tensor:
     """Apply one prepared packed weight through a block-dot prototype."""
     if not isinstance(inputs, torch.Tensor) or not inputs.is_floating_point():
@@ -280,6 +287,8 @@ def linear_fused_dot_triton(
         raise ValueError("block_k must be 16, 32, 64, or 128")
     if num_warps not in {2, 4, 8}:
         raise ValueError("num_warps must be 2, 4, or 8")
+    if not isinstance(_full_e8_decode, bool):
+        raise TypeError("_full_e8_decode must be a bool")
     if not _TRITON_INSTALLED:
         raise RuntimeError("Triton is not installed")
     record = prepared.record
@@ -318,9 +327,26 @@ def linear_fused_dot_triton(
         code_width=record.indices.code_bit_width,
         beta_width=record.indices.beta_index_bit_width,
         has_bias=bias is not None,
+        full_e8_decode=_full_e8_decode,
         block_m=block_m,
         block_n=block_n,
         block_k=block_k,
         num_warps=num_warps,
     )
     return output.reshape(*inputs.shape[:-1], rows)
+
+
+def linear_fused_dot_no_e8_ablation_triton(
+    inputs: torch.Tensor,
+    prepared: PreparedNQRTLinear,
+    bias: torch.Tensor | None = None,
+    **config: int,
+) -> torch.Tensor:
+    """Performance-only path with RNG/E8 projection removed.
+
+    The output has no model semantics and must only be used to attribute kernel
+    time. Packed reads, coset construction, scaling, and ``tl.dot`` remain.
+    """
+    return linear_fused_dot_triton(
+        inputs, prepared, bias, _full_e8_decode=False, **config
+    )

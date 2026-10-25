@@ -64,5 +64,6 @@ PIQA/HellaSwag 完整评测已于 2026-10-24 完成。W4 相对 BF16 的 `acc_no
 - A4/KV4 仍是质量仿真，不能声称低比特张量常驻显存；
 - 已有 packed NQRT 解码融合 BF16 Tensor Core dot 的真实 block 原型；100 次同协议测量中它相对标量 packed block 加速 1.57～1.73×，但仍慢于 BF16 常驻 block，不能声称 INT4 GEMM、端到端模型加速或生产吞吐提升；
 - 长 prefill 的大 M tile 分派在 seq 32/64/128 上相对标量 packed block 加速 2.31×/3.80×/6.16×，同时仍比 BF16 常驻 block 慢 21.9%/26.7%/45.3%；可以陈述 packed runtime 优化收益，不能改写为 BF16 加速收益；
+- profiler 与无语义编译期消融将剩余瓶颈定位到 fused NQRT kernel 内的 stateless RNG/E8 重建：七个 kernel 占 GPU 自耗时 79%～85%，移除 RNG 与两次 E8 投影可减少代表性投影 61%～76% 的 kernel 时间；该消融输出无效，只能作为性能归因，不能作为模型结果；
 - QuaRot 数字来自有明确补丁的兼容移植，不能写成官方发布的 Llama-3.2-1B 结果；
 - 当前实现覆盖论文核心模块，但仍存在 beta 来源、旋转语义和运行时存储方面的差距，不能写成全文逐项复现完成。

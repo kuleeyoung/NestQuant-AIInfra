@@ -64,6 +64,38 @@ def _measure(operation, repeats: int) -> tuple[dict[str, float], int]:
     return _stats(values), max(0, torch.cuda.max_memory_allocated() - baseline)
 
 
+def _profile_cuda(operation, repeats: int) -> list[dict[str, object]]:
+    activities = [
+        torch.profiler.ProfilerActivity.CPU,
+        torch.profiler.ProfilerActivity.CUDA,
+    ]
+    operation()
+    torch.cuda.synchronize()
+    with torch.profiler.profile(
+        activities=activities,
+        record_shapes=True,
+    ) as profiler:
+        for _ in range(repeats):
+            operation()
+        torch.cuda.synchronize()
+    rows = []
+    for event in profiler.key_averages(group_by_input_shape=True):
+        device_us = float(getattr(event, "self_device_time_total", 0.0))
+        if device_us <= 0.0:
+            device_us = float(getattr(event, "self_cuda_time_total", 0.0))
+        if device_us <= 0.0:
+            continue
+        rows.append({
+            "name": event.key,
+            "count": event.count,
+            "input_shapes": event.input_shapes,
+            "self_device_total_us": device_us,
+            "self_device_mean_us": device_us / event.count,
+        })
+    rows.sort(key=lambda item: item["self_device_total_us"], reverse=True)
+    return rows
+
+
 def _module(model: torch.nn.Module, name: str) -> torch.nn.Module:
     return dict(model.named_modules())[name]
 
@@ -81,6 +113,7 @@ def main() -> None:
     parser.add_argument("--layer-index", type=int, default=0)
     parser.add_argument("--sequence-length", type=int, nargs="+", default=[1, 8, 16])
     parser.add_argument("--repeats", type=int, default=30)
+    parser.add_argument("--profile-repeats", type=int, default=0)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--group-qkv", action="store_true")
     parser.add_argument(
@@ -90,8 +123,10 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    if args.layer_index < 0 or args.repeats < 1:
-        parser.error("layer-index must be nonnegative and repeats must be positive")
+    if args.layer_index < 0 or args.repeats < 1 or args.profile_repeats < 0:
+        parser.error(
+            "layer-index and profile-repeats must be nonnegative; repeats must be positive"
+        )
     if any(length < 1 for length in args.sequence_length):
         parser.error("sequence lengths must be positive")
 
@@ -167,6 +202,10 @@ def main() -> None:
                 "seconds": stats,
                 "peak_increment_bytes": peak,
             }
+            if args.profile_repeats:
+                reference_results[sequence_length]["profiler_cuda_events"] = (
+                    _profile_cuda(operation, args.profile_repeats)
+                )
 
     conversion = convert_linears_to_fused_nqrt_(
         model, reader, names, group_qkv=args.group_qkv,
@@ -198,6 +237,10 @@ def main() -> None:
                 "max_abs_error": float(error.abs().max().item()),
                 "relative_l2_error": relative_l2,
             }
+            if args.profile_repeats:
+                fused_results[sequence_length]["profiler_cuda_events"] = (
+                    _profile_cuda(operation, args.profile_repeats)
+                )
             del actual, error
 
     fused_modules = [_module(model, name) for name in names]
@@ -234,6 +277,7 @@ def main() -> None:
         "layer_index": args.layer_index,
         "device_name": torch.cuda.get_device_name(),
         "repeats": args.repeats,
+        "profile_repeats": args.profile_repeats,
         "compute_backend": args.compute_backend,
         "replaced_linear_names": list(conversion.replaced_linear_names),
         "shared_hadamard_groups": [
