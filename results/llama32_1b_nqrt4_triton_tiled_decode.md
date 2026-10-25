@@ -70,6 +70,32 @@ versus 846,217,728 bytes (66.26% lower), while forward time was 48.98 ms versus
 records from the Windows-mounted file and has no decode/GEMM overlap. This is
 an honest memory/latency trade-off, not an end-to-end speedup result.
 
+## Storage-path ablation
+
+The same checkpoint was copied from the Windows `/mnt/d` mount to WSL's native
+ext4 filesystem. Both files have SHA-256
+`dcecdf797ca08ad435612c2bef4376a098ba1a6107e9a390dc8e9e9e0cbb9aa4`.
+A dedicated benchmark alternated the two paths for seven repetitions and read
+the same 112 quantized record blobs (518,506,818 bytes per repetition), while
+excluding parse and decode:
+
+| Path | Mean | Median | Observed throughput |
+|---|---:|---:|---:|
+| Windows `/mnt/d` | 1.485 s | 1.523 s | 333 MiB/s |
+| WSL ext4 | 0.121 s | 0.100 s | 4,100 MiB/s |
+
+Operating-system page caches were not dropped, so these are observed warm
+runtime-path measurements rather than raw-device cold-read bandwidth. Under
+the same synchronized model profile, ext4 reduced record-read time from
+1.914 s to 0.0618 s and total forward time from 2.290 s to 0.367 s.
+
+In the non-profiling benchmark on ext4, the first lazy forward took 0.692 s;
+the next two took 0.298 s and 0.314 s. Logits remained bitwise equal and CUDA
+peak allocation remained 846,217,728 bytes. The fully materialized baseline
+forward in that run took 78.18 ms, so the low-memory lazy path is still about
+four times slower after warm-up. Storage placement removes most of the prior
+I/O penalty but does not eliminate synchronous read/decode overhead.
+
 ## Claim boundary
 
 The result supports a resume claim about implementing and validating a fused
