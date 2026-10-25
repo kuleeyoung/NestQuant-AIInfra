@@ -186,6 +186,21 @@ This is a semantics-preserving kernel optimization, unlike the invalid-output
 ablation modes. It shows that the E8 bottleneck was partly an implementation
 artifact rather than an unavoidable property of lattice decoding.
 
+An attempted follow-up combined the integer- and half-coset squared-error sums
+into one reduction of their difference. Although algebraically equivalent over
+real numbers, it changed FP32 summation order, raised down-projection maximum
+output error from 0.015625/0.03125 to 0.177734/0.265625 at sequence lengths
+1/128, and slowed all six measured projection/sequence cases by 1.5%-9.5%.
+The candidate was reverted. The two separate error reductions are therefore a
+numerical-semantics constraint, not currently removable arithmetic overhead.
+
+`cuobjdump --dump-resource-usage` on the restored q-projection sequence-128
+M128/N16/K32/eight-warp cubin reports 68 registers per thread and `LOCAL:0`.
+Thus this representative fast configuration has no local-memory register
+spill. Register pressure can still limit occupancy, but the next experiment
+must sweep an explicit register cap and measure the trade-off rather than
+assuming that spills already explain the remaining latency.
+
 ## Decision and next step
 
 The Tensor Core path replaces the scalar fused path for independent packed
