@@ -16,6 +16,7 @@ from ..runtime.triton_fused_linear import (
     linear_fused_triton,
     prepare_fused_linear,
 )
+from ..runtime.triton_grouped_linear import linear_fused_qkv_triton
 from .rotated_linear import PAPER_HADAMARD_FORMAT, HadamardRotatedLinear
 
 
@@ -175,11 +176,121 @@ class FusedNQRTLinear(nn.Module):
         return outputs.to(target_dtype)
 
 
+class GroupedQKVCoordinator:
+    """Compute and distribute Q/K/V outputs from one packed kernel launch."""
+
+    def __init__(self, reader: NQMCFileReader, weight_names: tuple[str, str, str]) -> None:
+        if not isinstance(reader, NQMCFileReader):
+            raise TypeError("reader must be an NQMCFileReader")
+        if not isinstance(weight_names, tuple) or len(weight_names) != 3 or not all(
+            isinstance(name, str) and name for name in weight_names
+        ):
+            raise ValueError("weight_names must contain three nonempty names")
+        self.reader = reader
+        self.weight_names = weight_names
+        self._prepared: tuple[PreparedNQRTLinear, PreparedNQRTLinear, PreparedNQRTLinear] | None = None
+        self._input: torch.Tensor | None = None
+        self._outputs: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None
+        self._consumed: set[int] = set()
+        self.launches = 0
+
+    def _prepared_for(self, device: torch.device):
+        prepared = self._prepared
+        if prepared is not None and prepared[0].code_payload.device == device:
+            return prepared
+        values = []
+        for name in self.weight_names:
+            _, record = self.reader.read_named_record(name)
+            if not isinstance(record, PackedNestQuantTensor):
+                raise TypeError("grouped QKV record must remain packed")
+            values.append(prepare_fused_linear(record, device=device))
+        prepared = tuple(values)
+        self._prepared = prepared
+        return prepared
+
+    def project(self, index: int, inputs: torch.Tensor) -> torch.Tensor:
+        if torch.is_grad_enabled():
+            raise RuntimeError("grouped QKV execution requires inference or no-grad mode")
+        if index not in {0, 1, 2}:
+            raise ValueError("QKV projection index must be 0, 1, or 2")
+        if self._outputs is None:
+            transformed = hadamard(inputs)
+            self._outputs = linear_fused_qkv_triton(
+                transformed, self._prepared_for(inputs.device)
+            )
+            self._input = inputs
+            self._consumed.clear()
+            self.launches += 1
+        elif self._input is not inputs:
+            raise RuntimeError("grouped QKV outputs were not fully consumed before a new input")
+        if index in self._consumed:
+            raise RuntimeError("grouped QKV projection was requested more than once")
+        assert self._outputs is not None
+        output = self._outputs[index]
+        self._consumed.add(index)
+        if len(self._consumed) == 3:
+            self._input = None
+            self._outputs = None
+            self._consumed.clear()
+        return output
+
+    def clear(self, *, prepared: bool = False) -> None:
+        self._input = None
+        self._outputs = None
+        self._consumed.clear()
+        if prepared:
+            self._prepared = None
+
+    @property
+    def packed_device_bytes(self) -> int:
+        if self._prepared is None:
+            return 0
+        return sum(
+            tensor.numel() * tensor.element_size()
+            for item in self._prepared
+            for tensor in (
+                item.code_payload, item.beta_payload, item.row_norms, item.beta_table
+            )
+        )
+
+
+class GroupedQKVProjection(nn.Module):
+    """Linear-compatible Q, K, or V view backed by a shared coordinator."""
+
+    def __init__(
+        self,
+        coordinator: GroupedQKVCoordinator,
+        index: int,
+        in_features: int,
+        out_features: int,
+        bias: torch.Tensor | None,
+        output_dtype: torch.dtype,
+    ) -> None:
+        super().__init__()
+        object.__setattr__(self, "coordinator", coordinator)
+        self.index = index
+        self.in_features = in_features
+        self.out_features = out_features
+        self.output_dtype = output_dtype
+        self.register_buffer("bias", None if bias is None else bias.detach().clone())
+
+    def _apply(self, fn, recurse: bool = True):
+        self.coordinator.clear(prepared=True)
+        return super()._apply(fn, recurse=recurse)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        output = self.coordinator.project(self.index, inputs)
+        if self.bias is not None:
+            output = output + self.bias.to(output.device)
+        return output.to(self.output_dtype)
+
+
 @dataclass(frozen=True)
 class FusedNQRTConversionReport:
     replaced_linear_names: tuple[str, ...]
     input_hadamard_names: tuple[str, ...]
     shared_hadamard_groups: tuple[tuple[str, ...], ...]
+    grouped_qkv_groups: tuple[tuple[str, str, str], ...]
 
 
 def convert_linears_to_fused_nqrt_(
@@ -188,6 +299,7 @@ def convert_linears_to_fused_nqrt_(
     include_names: Collection[str],
     *,
     output_dtype: torch.dtype | None = None,
+    group_qkv: bool = False,
 ) -> FusedNQRTConversionReport:
     """Transactionally replace selected model Linears with fused NQRT modules.
 
@@ -205,11 +317,15 @@ def convert_linears_to_fused_nqrt_(
         raise ValueError("include_names must contain nonempty module names")
     if len(requested) != len(set(requested)):
         raise ValueError("include_names must be unique")
+    if not isinstance(group_qkv, bool):
+        raise TypeError("group_qkv must be a bool")
 
     modules = dict(model.named_modules())
     hadamard_names = _hadamard_names(reader.model_metadata)
     requested_set = set(requested)
     shared_groups = _shared_hadamard_groups(requested_set & hadamard_names)
+    grouped_qkv_groups = _complete_qkv_groups(requested_set & hadamard_names) if group_qkv else ()
+    grouped_names = {name for group in grouped_qkv_groups for name in group}
     caches = {
         name: cache
         for group in shared_groups
@@ -228,7 +344,29 @@ def convert_linears_to_fused_nqrt_(
             raise ValueError(f"quantized weight shape mismatch: {name}.weight")
         staged.append((name, module))
 
+    for group in grouped_qkv_groups:
+        coordinator = GroupedQKVCoordinator(
+            reader, tuple(f"{name}.weight" for name in group)
+        )
+        for index, name in enumerate(group):
+            module = modules[name]
+            projection = GroupedQKVProjection(
+                coordinator,
+                index,
+                module.weight.shape[1],
+                module.weight.shape[0],
+                None if module.bias is None else module.bias.detach(),
+                getattr(module, "output_dtype", module.weight.dtype)
+                if output_dtype is None else output_dtype,
+            )
+            projection.train(module.training)
+            parent_name, _, child_name = name.rpartition(".")
+            parent = model if not parent_name else modules[parent_name]
+            setattr(parent, child_name, projection)
+
     for name, module in staged:
+        if name in grouped_names:
+            continue
         fused = FusedNQRTLinear(
             reader,
             f"{name}.weight",
@@ -249,6 +387,7 @@ def convert_linears_to_fused_nqrt_(
         replaced_linear_names=tuple(sorted(requested)),
         input_hadamard_names=tuple(sorted(requested_set & hadamard_names)),
         shared_hadamard_groups=shared_groups,
+        grouped_qkv_groups=grouped_qkv_groups,
     )
 
 
@@ -263,6 +402,16 @@ def _shared_hadamard_groups(names: set[str]) -> tuple[tuple[str, ...], ...]:
             continue
         candidates.setdefault(key, []).append(name)
     return tuple(tuple(group) for group in candidates.values() if len(group) > 1)
+
+
+def _complete_qkv_groups(names: set[str]) -> tuple[tuple[str, str, str], ...]:
+    prefixes = sorted({name.rsplit(".", 1)[0] for name in names})
+    groups = []
+    for prefix in prefixes:
+        group = tuple(f"{prefix}.{suffix}_proj" for suffix in ("q", "k", "v"))
+        if all(name in names for name in group):
+            groups.append(group)
+    return tuple(groups)
 
 
 def _hadamard_names(metadata: dict[str, object]) -> set[str]:

@@ -3,6 +3,7 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 import torch
 from torch import nn
@@ -15,6 +16,7 @@ from nestquant.core.rotation import hadamard
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.models.fused_linear import (
     FusedNQRTLinear,
+    GroupedQKVCoordinator,
     SharedHadamardCache,
     convert_linears_to_fused_nqrt_,
 )
@@ -72,6 +74,7 @@ class TestFusedNQRTLinear(unittest.TestCase):
             self.assertEqual(report.replaced_linear_names, ("first",))
             self.assertEqual(report.input_hadamard_names, ("first",))
             self.assertEqual(report.shared_hadamard_groups, ())
+            self.assertEqual(report.grouped_qkv_groups, ())
             self.assertFalse(model.first.prepared)
 
     def test_shared_hadamard_cache_reuses_only_the_same_input_object(self):
@@ -89,6 +92,30 @@ class TestFusedNQRTLinear(unittest.TestCase):
         with torch.inference_mode():
             cache.transform(inputs)
         self.assertEqual(cache.misses, 3)
+
+    def test_grouped_qkv_coordinator_launches_once_and_clears_after_consumption(self):
+        coordinator = GroupedQKVCoordinator(
+            Mock(spec=NQMCFileReader), ("q", "k", "v")
+        )
+        inputs = torch.randn(2, 8)
+        outputs = tuple(torch.randn(2, size) for size in (6, 4, 4))
+        coordinator._prepared_for = lambda device: ("q", "k", "v")
+        with (
+            patch("nestquant.models.fused_linear.hadamard", side_effect=lambda value: value),
+            patch(
+                "nestquant.models.fused_linear.linear_fused_qkv_triton",
+                return_value=outputs,
+            ) as grouped,
+            torch.inference_mode(),
+        ):
+            self.assertIs(coordinator.project(0, inputs), outputs[0])
+            with self.assertRaisesRegex(RuntimeError, "more than once"):
+                coordinator.project(0, inputs)
+            self.assertIs(coordinator.project(1, inputs), outputs[1])
+            self.assertIs(coordinator.project(2, inputs), outputs[2])
+            self.assertIs(coordinator.project(0, inputs), outputs[0])
+        self.assertEqual(grouped.call_count, 2)
+        self.assertEqual(coordinator.launches, 2)
 
     def test_validation_is_transactional(self):
         model = TinyProjectionPair().eval()

@@ -10,6 +10,8 @@ from .lazy_model import LazyNQMCConversionReport, convert_model_to_lazy_nqmc_
 from .fused_linear import (
     FusedNQRTConversionReport,
     FusedNQRTLinear,
+    GroupedQKVCoordinator,
+    GroupedQKVProjection,
     SharedHadamardCache,
     convert_linears_to_fused_nqrt_,
 )
@@ -28,6 +30,8 @@ __all__ = [
     "HadamardRotatedLinear",
     "FusedNQRTConversionReport",
     "FusedNQRTLinear",
+    "GroupedQKVCoordinator",
+    "GroupedQKVProjection",
     "SharedHadamardCache",
     "LazyNQMCLinear",
     "LazyNQMCConversionReport",

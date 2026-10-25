@@ -79,6 +79,23 @@ the dominant bottleneck. The next meaningful optimization must reduce the
 seven packed dot-product kernels and their launch overhead, not continue
 micro-optimizing the input transform.
 
+### Grouped-QKV integration
+
+The attention adapter now has an opt-in coordinator that computes Q/K/V in one
+grouped packed launch when `q_proj` is called, returns the cached K and V to the
+following projection calls, and clears all three activation outputs immediately
+after the third consumer. It rejects duplicate projection requests and a new
+input arriving before the previous QKV tuple is fully consumed.
+
+The isolated grouped kernel was 1.065-1.121x faster than three independent QKV
+launches, but the real block medians change from 5.9640/5.8931/5.9380 ms to
+6.0506/5.8958/5.8766 ms for sequence lengths 1/8/16. This is -1.4%, effectively
+zero, and +1.0%, respectively. The packed bytes and numerical errors are
+unchanged. QKV launch consolidation is correct and locally faster, but its
+absolute saving is too small relative to the full attention/MLP block to produce
+a stable block-level speedup. A grouped gate/up kernel or a more efficient dot
+product implementation is required before another end-to-end expansion.
+
 Machine-readable measurements are in
-`results/raw/llama32_1b_nqrt4_fused_block0_shared_hadamard.json`. Reproduction entry point:
+`results/raw/llama32_1b_nqrt4_fused_block0_grouped_qkv.json`. Reproduction entry point:
 `scripts/benchmark_fused_nqrt_block.py`.

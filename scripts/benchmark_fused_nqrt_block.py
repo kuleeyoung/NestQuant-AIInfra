@@ -21,6 +21,7 @@ from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.models.fused_linear import (
     FusedNQRTLinear,
+    GroupedQKVProjection,
     convert_linears_to_fused_nqrt_,
 )
 from nestquant.models.rotated_linear import HadamardRotatedLinear
@@ -81,6 +82,7 @@ def main() -> None:
     parser.add_argument("--sequence-length", type=int, nargs="+", default=[1, 8, 16])
     parser.add_argument("--repeats", type=int, default=30)
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--group-qkv", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.layer_index < 0 or args.repeats < 1:
@@ -161,7 +163,9 @@ def main() -> None:
                 "peak_increment_bytes": peak,
             }
 
-    conversion = convert_linears_to_fused_nqrt_(model, reader, names)
+    conversion = convert_linears_to_fused_nqrt_(
+        model, reader, names, group_qkv=args.group_qkv
+    )
     layer = _module(model, layer_name)
     gc.collect()
     torch.cuda.empty_cache()
@@ -191,9 +195,19 @@ def main() -> None:
             del actual, error
 
     fused_modules = [_module(model, name) for name in names]
-    if not all(isinstance(module, FusedNQRTLinear) for module in fused_modules):
+    if not all(isinstance(module, (FusedNQRTLinear, GroupedQKVProjection)) for module in fused_modules):
         raise RuntimeError("fused conversion did not replace every projection")
-    packed_device_bytes = sum(module.packed_device_bytes for module in fused_modules)
+    packed_device_bytes = sum(
+        module.packed_device_bytes
+        for module in fused_modules if isinstance(module, FusedNQRTLinear)
+    )
+    coordinators = {
+        id(module.coordinator): module.coordinator
+        for module in fused_modules if isinstance(module, GroupedQKVProjection)
+    }
+    packed_device_bytes += sum(
+        coordinator.packed_device_bytes for coordinator in coordinators.values()
+    )
     results = []
     for sequence_length in args.sequence_length:
         reference = reference_results[sequence_length]
@@ -217,6 +231,9 @@ def main() -> None:
         "replaced_linear_names": list(conversion.replaced_linear_names),
         "shared_hadamard_groups": [
             list(group) for group in conversion.shared_hadamard_groups
+        ],
+        "grouped_qkv_groups": [
+            list(group) for group in conversion.grouped_qkv_groups
         ],
         "bf16_weight_bytes": bf16_weight_bytes,
         "packed_device_bytes": packed_device_bytes,
