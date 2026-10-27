@@ -22,6 +22,7 @@ from ..runtime.triton_dot_linear import (
     select_nqrt_dot_config,
 )
 from ..runtime.triton_grouped_linear import linear_fused_qkv_triton
+from ..runtime.cuda_mma_linear import can_use_mma_j2, linear_fused_mma_j2
 from .rotated_linear import PAPER_HADAMARD_FORMAT, HadamardRotatedLinear
 
 
@@ -108,8 +109,10 @@ class FusedNQRTLinear(nn.Module):
             torch.float16, torch.bfloat16, torch.float32,
         }:
             raise ValueError("output_dtype must be float16, bfloat16, float32, or None")
-        if compute_backend not in {"tensor_core_dot", "scalar"}:
-            raise ValueError("compute_backend must be 'tensor_core_dot' or 'scalar'")
+        if compute_backend not in {"tensor_core_dot", "scalar", "cuda_mma_j2"}:
+            raise ValueError(
+                "compute_backend must be 'tensor_core_dot', 'scalar', or 'cuda_mma_j2'"
+            )
 
         self.reader = reader
         self.weight_name = weight_name
@@ -179,7 +182,9 @@ class FusedNQRTLinear(nn.Module):
             compute_inputs = hadamard(inputs) if self.input_hadamard else inputs
         bias = None if self.bias is None else self.bias.to(inputs.device)
         prepared = self._prepared_for(inputs.device)
-        if self.compute_backend == "tensor_core_dot":
+        if self.compute_backend == "cuda_mma_j2" and can_use_mma_j2(compute_inputs, prepared):
+            outputs = linear_fused_mma_j2(compute_inputs, prepared, bias)
+        elif self.compute_backend in {"tensor_core_dot", "cuda_mma_j2"}:
             token_count = math.prod(compute_inputs.shape[:-1])
             config = select_nqrt_dot_config(
                 self.out_features, self.in_features, token_count
@@ -337,8 +342,10 @@ def convert_linears_to_fused_nqrt_(
         raise ValueError("include_names must be unique")
     if not isinstance(group_qkv, bool):
         raise TypeError("group_qkv must be a bool")
-    if compute_backend not in {"tensor_core_dot", "scalar"}:
-        raise ValueError("compute_backend must be 'tensor_core_dot' or 'scalar'")
+    if compute_backend not in {"tensor_core_dot", "scalar", "cuda_mma_j2"}:
+        raise ValueError(
+            "compute_backend must be 'tensor_core_dot', 'scalar', or 'cuda_mma_j2'"
+        )
 
     modules = dict(model.named_modules())
     hadamard_names = _hadamard_names(reader.model_metadata)

@@ -118,7 +118,7 @@ def main() -> None:
     parser.add_argument("--group-qkv", action="store_true")
     parser.add_argument(
         "--compute-backend",
-        choices=("tensor_core_dot", "scalar"),
+        choices=("tensor_core_dot", "scalar", "cuda_mma_j2"),
         default="tensor_core_dot",
     )
     parser.add_argument("--output", type=Path)

@@ -206,6 +206,12 @@ def _benchmark_path(
         "decode_tokens_per_second": (
             0.0 if tpot == 0.0 else 1.0 / tpot
         ),
+        "decode_tokens_per_second_per_request": (
+            0.0 if tpot == 0.0 else 1.0 / tpot
+        ),
+        "aggregate_decode_tokens_per_second": (
+            0.0 if tpot == 0.0 else input_ids.shape[0] / tpot
+        ),
         "generated_token_ids": generated,
         "cuda_peak_allocated_bytes_from_process_start": peak_increment,
         "cuda_model_and_runtime_allocated_bytes_after_warmup": resident_allocated,
@@ -229,7 +235,9 @@ def main() -> None:
     parser.add_argument("--decode-tokens", type=int, default=8)
     parser.add_argument("--repeats", type=int, default=10)
     parser.add_argument("--offline", action="store_true")
-    parser.add_argument("--modes", nargs="+", choices=("bf16", "scalar", "tensor_core_dot"),
+    parser.add_argument(
+        "--modes", nargs="+",
+        choices=("bf16", "scalar", "tensor_core_dot", "cuda_mma_j2"),
                         default=["bf16", "scalar", "tensor_core_dot"])
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
