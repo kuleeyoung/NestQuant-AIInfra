@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "runtime": "nqrt4_ragged_cuda_graph",
+  "capacity": 8,
+  "sampling": "host_greedy_argmax",
+  "admission_policy": {
+    "min_prefill_batch": 8,
+    "max_wait_steps": 4,
+    "idle_fast_path": true
+  },
+  "selection_evidence": {
+    "device": "NVIDIA GeForce RTX 5070",
+    "model": "meta-llama/Llama-3.2-1B",
+    "closed_loop_report": "results/raw/admission_policy_sweep.json",
+    "open_loop_reports": [
+      "results/raw/open_loop_admission_benchmark.json",
+      "results/raw/open_loop_admission_benchmark_100ms.json",
+      "results/raw/open_loop_admission_benchmark_250ms.json"
+    ]
+  },
+  "claim_boundary": "Hardware-specific prototype default. Re-tune when GPU, model, capacity, prompt distribution, or arrival process changes."
+}
