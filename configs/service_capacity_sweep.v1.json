@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "seed": 20261027,
+  "capacity": 8,
+  "max_cache_len": 64,
+  "warmup_requests": 8,
+  "warmup_all_prompt_lengths": true,
+  "repetitions": 3,
+  "couple_profile_seeds": true,
+  "policies": [
+    {"name": "selected_8_4", "min_prefill_batch": 8, "max_wait_steps": 4}
+  ],
+  "profiles": [
+    {"name": "fixed_4rps", "request_count": 48, "arrival_mode": "fixed", "arrival_interval_ms": 250, "length_mode": "uniform", "prompt_length": [4, 32], "output_length": [2, 8], "max_cache_len": 64},
+    {"name": "fixed_10rps", "request_count": 48, "arrival_mode": "fixed", "arrival_interval_ms": 100, "length_mode": "uniform", "prompt_length": [4, 32], "output_length": [2, 8], "max_cache_len": 64},
+    {"name": "fixed_20rps", "request_count": 48, "arrival_mode": "fixed", "arrival_interval_ms": 50, "length_mode": "uniform", "prompt_length": [4, 32], "output_length": [2, 8], "max_cache_len": 64},
+    {"name": "fixed_30rps", "request_count": 48, "arrival_mode": "fixed", "arrival_interval_ms": 33.333333, "length_mode": "uniform", "prompt_length": [4, 32], "output_length": [2, 8], "max_cache_len": 64},
+    {"name": "fixed_40rps", "request_count": 48, "arrival_mode": "fixed", "arrival_interval_ms": 25, "length_mode": "uniform", "prompt_length": [4, 32], "output_length": [2, 8], "max_cache_len": 64},
+    {"name": "fixed_50rps", "request_count": 48, "arrival_mode": "fixed", "arrival_interval_ms": 20, "length_mode": "uniform", "prompt_length": [4, 32], "output_length": [2, 8], "max_cache_len": 64}
+  ],
+  "claim_boundary": "Single-process fixed-rate synthetic token-ID capacity sweep for the selected 8/4 policy; no tokenizer, network I/O, production SLA, or infinite-duration stability claim."
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "seed": 20261027,
+  "profile_token_counts": [1, 16],
+  "profile_token_weights": [0.8, 0.2],
+  "warmup": 5,
+  "iterations": 30,
+  "budget_mib": [0, 256, 512, 768, 1024, 1400],
+  "benchmark": {
+    "batch_size": 1,
+    "prompt_length": 32,
+    "decode_tokens": 16,
+    "warmup": 3,
+    "repetitions": 20
+  },
+  "selection_note": "Rank atomic QKV, gate/up, o and down groups by weighted isolated packed-minus-BF16 latency saved per incremental MiB. Final claims use measured full-model points, not predicted savings."
+}

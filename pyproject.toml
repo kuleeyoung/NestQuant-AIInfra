@@ -14,6 +14,12 @@ nestquant-eval-ppl = "nestquant.experiments.llm_perplexity:main"
 nestquant-summarize-ppl = "nestquant.evaluation.result_summary:main"
 nestquant-reproduce = "nestquant.experiments.reproduction:main"
 nestquant-inspect-nqmc = "nestquant.cli.inspect_nqmc:main"
+nestquant-audit-repository = "nestquant.cli.audit_repository:main"
+nestquant-validate-service-benchmark = "nestquant.cli.validate_service_benchmark:main"
+nestquant-promote-service-benchmark = "nestquant.cli.promote_service_benchmark:main"
+nestquant-verify-service-evidence = "nestquant.cli.verify_service_evidence:main"
+nestquant-validate-hybrid-pareto = "nestquant.cli.validate_hybrid_pareto:main"
+nestquant-promote-hybrid-pareto = "nestquant.cli.promote_hybrid_pareto:main"
 
 [project.optional-dependencies]
 evaluation = ["transformers>=4.45", "datasets>=3.0", "huggingface-hub>=0.25", "safetensors>=0.4"]
@@ -22,3 +28,6 @@ benchmark = ["lm_eval==0.4.13", "accelerate>=0.26"]
 
 [tool.setuptools.packages.find]
 include = ["nestquant*"]
+
+[tool.setuptools.package-data]
+"nestquant.runtime" = ["*.cu", "*.cuh", "*.cpp"]

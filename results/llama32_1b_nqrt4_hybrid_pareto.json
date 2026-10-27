@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "device": "NVIDIA GeForce RTX 5070",
+  "torch_version": "2.14.1+cu130",
+  "model_id": "meta-llama/Llama-3.2-1B",
+  "model_revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+  "source_raw_sha256": "f47926e74d792b3271bff3b9802d932d8b53f284c296d7f85df897d05142b8da",
+  "source_profile_sha256": "85b1463b87ec9f22ee992b6ca5a9e3912243f2d370fce94f03fad423d3de469f",
+  "source_config_sha256": "12e711320d74c1c08fe7dad00ce5cb8cda9eb83955db3e45a934bffbb66d6b03",
+  "checkpoint_sha256": "dcecdf797ca08ad435612c2bef4376a098ba1a6107e9a390dc8e9e9e0cbb9aa4",
+  "validation": {
+    "status": "passed",
+    "projection_count": 112,
+    "group_count": 64,
+    "budget_points": 6,
+    "pareto_budget_mib": [
+      0,
+      256,
+      512,
+      768,
+      1024,
+      1400
+    ]
+  },
+  "pareto_budget_mib": [
+    0,
+    256,
+    512,
+    768,
+    1024,
+    1400
+  ],
+  "points": [
+    {
+      "budget_mib": 0,
+      "resident_projection_count": 0,
+      "packed_projection_count": 112,
+      "cuda_allocated_bytes_after_warmup": 1078588928,
+      "actual_packed_device_bytes": 518457088,
+      "steady_prefill_median_ms": 60.23805350000089,
+      "ttft_median_ms": 59.73504150000508,
+      "ttft_p95_ms": 62.2170699999856,
+      "tpot_median_ms": 40.42391628571604,
+      "tpot_p95_ms": 44.628571635709385,
+      "decode_tokens_per_second_per_request": 24.46126191125949,
+      "relative_l2_logit_error_vs_bf16": 0.10480181127786636
+    },
+    {
+      "budget_mib": 256,
+      "resident_projection_count": 64,
+      "packed_projection_count": 48,
+      "cuda_allocated_bytes_after_warmup": 1324643840,
+      "actual_packed_device_bytes": 428999424,
+      "steady_prefill_median_ms": 46.980792000027805,
+      "ttft_median_ms": 45.55038350000018,
+      "ttft_p95_ms": 47.601218150018106,
+      "tpot_median_ms": 27.170712285715535,
+      "tpot_p95_ms": 31.141095389289678,
+      "decode_tokens_per_second_per_request": 36.174520546066304,
+      "relative_l2_logit_error_vs_bf16": 0.08951308578252792
+    },
+    {
+      "budget_mib": 512,
+      "resident_projection_count": 75,
+      "packed_projection_count": 37,
+      "cuda_allocated_bytes_after_warmup": 1595604992,
+      "actual_packed_device_bytes": 330867280,
+      "steady_prefill_median_ms": 35.044133499980035,
+      "ttft_median_ms": 34.40749699998946,
+      "ttft_p95_ms": 36.28949974996658,
+      "tpot_median_ms": 21.90695646428407,
+      "tpot_p95_ms": 25.065268017855505,
+      "decode_tokens_per_second_per_request": 45.059364180288796,
+      "relative_l2_logit_error_vs_bf16": 0.0789174810051918
+    },
+    {
+      "budget_mib": 768,
+      "resident_projection_count": 86,
+      "packed_projection_count": 26,
+      "cuda_allocated_bytes_after_warmup": 1866418688,
+      "actual_packed_device_bytes": 232587680,
+      "steady_prefill_median_ms": 26.515895999978056,
+      "ttft_median_ms": 26.516579500025728,
+      "ttft_p95_ms": 28.133005750035522,
+      "tpot_median_ms": 17.88564064286545,
+      "tpot_p95_ms": 20.08861829999944,
+      "decode_tokens_per_second_per_request": 56.36034699115717,
+      "relative_l2_logit_error_vs_bf16": 0.050592176616191864
+    },
+    {
+      "budget_mib": 1024,
+      "resident_projection_count": 96,
+      "packed_projection_count": 16,
+      "cuda_allocated_bytes_after_warmup": 2112501248,
+      "actual_packed_device_bytes": 143130880,
+      "steady_prefill_median_ms": 20.691274999990128,
+      "ttft_median_ms": 20.72220150000703,
+      "ttft_p95_ms": 24.55620425002678,
+      "tpot_median_ms": 15.12760792857039,
+      "tpot_p95_ms": 16.953083750001547,
+      "decode_tokens_per_second_per_request": 66.21303474924139,
+      "relative_l2_logit_error_vs_bf16": 0.04043206572532654
+    },
+    {
+      "budget_mib": 1400,
+      "resident_projection_count": 112,
+      "packed_projection_count": 0,
+      "cuda_allocated_bytes_after_warmup": 2506233344,
+      "actual_packed_device_bytes": 0,
+      "steady_prefill_median_ms": 11.113824500000646,
+      "ttft_median_ms": 11.27076050002529,
+      "ttft_p95_ms": 17.149226500001195,
+      "tpot_median_ms": 10.449969249996068,
+      "tpot_p95_ms": 12.482972950008428,
+      "decode_tokens_per_second_per_request": 93.10083290260607,
+      "relative_l2_logit_error_vs_bf16": 0.0
+    }
+  ],
+  "claim_boundary": "Single-GPU finite-sample full-model benchmark. Ranking uses isolated family-median timings; only measured nondominated points support Pareto claims."
+}
