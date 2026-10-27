@@ -21,8 +21,14 @@
 
 - 已在固定 Llama-3.2-1B、`lm_eval==0.4.13`、zero-shot 协议下完成 PIQA 1,838 题和 HellaSwag 10,042 题全量评测，并核对模型 revision、数据指纹、任务定义哈希和逐样本身份。NQMC W4 相对 BF16 的 `acc_norm` 分别下降 1.14/1.41 个百分点，W4A4KV4 分别下降 4.03/4.27 个百分点。
 - W4A4KV4 下游参考路径耗时 15,633.48 秒，BF16/W4 为 257.46/264.34 秒。该约 59 倍差异只可用于定位 Python/PyTorch fake-quant 开销和说明 fused kernel 的工程必要性，不能写成 NestQuant 低比特 kernel 性能。
+- 已把 Llama-3.2-1B 的 112 个 Linear 接入 NQRT4 packed-resident runtime：kernel 内恢复 E8 block、转换为 BF16 tile 并使用 Tensor Core 累加，不物化完整 BF16 权重。完整模型 warm CUDA allocation 从 2,390.1 MB 降至 1,028.6 MB（-57.0%）；当前延迟仍慢于 BF16 resident，因此只能陈述显存—延迟权衡，不能陈述端到端加速。
+- 已实现固定 batch 可复用 CUDA Graph decode runner。与 packed eager 相比，batch 1/16 的 decode-forward 中位延迟从 40.43/40.34 ms 降至 16.61/20.90 ms，即 2.43×/1.93×；32-token greedy 输出与 eager 一致。该数字不包含动态调度、采样、tokenizer 或网络开销。
+- 已实现固定 capacity 的 ragged KV cache、continuous-batching 状态机、slot 回收/复用、host greedy sampling 与 admission microbatch。10 分钟真实 GPU soak 完成 17,264/17,264 个请求和 86,348 token，平均 143.79 token/s；368 次有限值检查通过，排空后请求注册表为 0，CUDA allocated 采样范围为 512 bytes。该结果是单进程 engine 稳定性证据，不是生产 SLA。
+- 在 steady 50 req/s、16×3 burst 和 Poisson 20 req/s 双峰三类 open-loop 合成负载上，将 `8/4` admission 与即时 `1/0` 各重复 3 次。`8/4` 的 token throughput 分别提高 42.1%/46.2%/16.2%，TTFT P95 分别降低 47.5%/51.0%/33.8%；18 次 run、864 个请求全部完成。该结果不含 tokenizer/网络，不能写成 HTTP QPS。
+- 对 `8/4` 策略完成 4/10/20/30/40/50 req/s 配对容量扫描，同一 repetition 的请求内容完全相同。30→50 offered req/s 时 token throughput 仅从 121.61 增至 129.10 token/s，而 TTFT P95 从 335.99 增至 746.94 ms，定位本配置约 25～30 req/s 的饱和拐点。该数字是有限 engine workload，不是生产稳定 QPS。
+- 实现 112 个 Llama projection 的 packed/BF16 混合驻留规划器，将共享变换投影组成 64 个原子组，并按预测节省延迟/增量显存进行确定性选择。在 RTX 5070 的六点全模型测试中，512 MiB 预算相对全 packed 将 TTFT/TPOT 中位数降低 42.4%/45.8%，同时相对全 BF16 resident 少 36.3% CUDA allocated memory；方案已通过 ragged CUDA Graph 正确性验证。该结果只证明已测六个方案的 Pareto 权衡，不代表全局最优。
 
-上述 PPL 和下游结果仅支持本项目当前量化范围、beta 配置与评测协议。NQMC 已提供真实低比特存储证据，但不等于完成 NestQuant 全文复现；不能据此声称等码率优越性、低比特常驻显存或推理加速。
+上述 PPL、下游和 runtime 结果仅支持各自记录的量化范围、beta 配置与评测协议。NQMC 与 packed runtime 已分别提供真实低比特存储和权重常驻执行证据，但不等于完成 NestQuant 全文复现；不能据此声称等码率优越性、A/KV 低比特常驻、超过 BF16 resident 的端到端加速或生产服务吞吐。
 
 ## 达到对应证据后才能写
 
@@ -32,8 +38,13 @@
 | QuaRot same-task compatibility comparison | Ported the official QuaRot fake-quant path to Llama-3.2-1B/RTX 5070 with a pure-PyTorch Hadamard fallback, GQA-aware K-cache reshape, tied embedding/lm_head handling, and Transformers 4.46 GPTQ device placement. Under the same model revision, WikiText-2 test-token hash and 288,627-token NLL aggregator, rotated BF16/GPTQ W4/W4KV4/W4A4/W4A4KV4 PPL is 9.762884/10.508346/12.269130/15.850334/21.095586. This is a documented compatibility port and quality simulation, not the official CUDA kernel or an inference-speed result. |
 | “模型困惑度改善/接近论文” | 同一模型 revision、tokenizer、评测 split、文本处理和 PPL 聚合；保存 run manifest、token hash 和日志 |
 | “模型压缩到约 4.27 bit/量化参数 / NQMC 为 BF16 逻辑载荷的 26.67%” | **已具备**：实际文件、byte 级核算、SHA-256、独立回载与完整 PPL；表述时保留“BF16 分母是逻辑载荷而非另一个实测文件”的限定 |
-| “显存下降 / 推理加速 X%” | 同机、同输入、同 batch/context、同质量口径的峰值显存和延迟/吞吐 benchmark；同步 GPU 并报告统计区间 |
-| “服务部署能力” | 可调用的部署入口、并发/稳定性/错误处理和资源监控证据 |
+| “packed 权重显存下降 57%” | **已具备**：完整 1B、相同模型结构、warm allocation 与运行报告；必须同时披露当前比 BF16 resident 慢 |
+| “CUDA Graph 相对 packed eager 加速 2.43×/1.93×” | **已具备**：固定 batch 1/16、相同 packed runtime、同步计时与输出一致性；不得外推为网络服务 QPS |
+| “continuous batching 原型与稳定性” | **已具备**：ragged cache、slot 生命周期、10 分钟 GPU soak、17,264 请求完整回收；只能称 engine prototype |
+| “服务负载下 admission 优化” | **已具备**：三类 open-loop workload、两策略、三重复、P50/P95/P99 与机器验收；不得写成 HTTP QPS 或生产 SLA |
+| “定位服务容量拐点” | **已具备**：4～50 req/s 配对单因素扫描，吞吐平台与尾延迟/队列共同证据；必须限定模型、GPU、长度分布和有限请求数 |
+| “混合驻留显存—延迟 Pareto” | **已具备**：六个全模型预算点、20 次重复、独立 validator、四类 SHA-256 和 Graph 正确性；必须说明选择器是贪心启发式、Pareto 仅限已测候选集合 |
+| “服务部署能力” | 仍需可调用的网络入口、请求协议、错误处理、取消/超时和外部资源监控证据 |
 
 任何数值都必须可追溯到配置、运行命令、日志和版本。结果不理想也保留，可作为取舍分析；不得用论文表格数字冒充本地结果。
 

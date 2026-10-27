@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_ROOT="/mnt/d/code/NestQuant-AIInfra"
-VENV_ROOT="/home/kulee/code/NestQuant-AIInfra/.venv"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+VENV_ROOT="${NESTQUANT_VENV_ROOT:-$PROJECT_ROOT/.venv}"
 RUN_DIR="$PROJECT_ROOT/results/raw/downstream_full_20261024"
 CHECKPOINT="$PROJECT_ROOT/results/raw/llama32_1b_nestquant_w4_shared128_no_lm_head.nqmc"
 KV_BETAS="$PROJECT_ROOT/configs/kv_betas_upstream_defaults_q14.json"
@@ -17,7 +18,14 @@ export TOKENIZERS_PARALLELISM=false
 export CUDA_VISIBLE_DEVICES=0
 
 cd "$PROJECT_ROOT"
-source "$VENV_ROOT/bin/activate"
+if [[ -z "${VIRTUAL_ENV:-}" ]]; then
+  if [[ ! -f "$VENV_ROOT/bin/activate" ]]; then
+    echo "virtual environment not found: $VENV_ROOT" >&2
+    echo "activate one first or set NESTQUANT_VENV_ROOT" >&2
+    exit 2
+  fi
+  source "$VENV_ROOT/bin/activate"
+fi
 
 failure_marker() {
   local exit_code=$?

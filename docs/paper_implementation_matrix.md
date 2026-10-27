@@ -7,7 +7,7 @@
 - 作者仓库：`cookiedoth/nestquant`；
 - 固定作者 commit：`6b269f84264afad990a09248d8eeb45d5f6248ff`；
 - 本项目模型：Llama-3.2-1B Base，并非论文主表中的 Llama-3-8B；
-- 审计日期：2026-10-24。
+- 审计日期：2026-10-27。
 
 页码使用 PDF 文件页码。论文正文印刷页码可能比 PDF 页码小一页。无法由论文或固定 commit 确认的内容明确标为“无法确认”，不根据期望结果补全。
 
@@ -19,7 +19,7 @@
 2. 论文 §4.3 的局部 `W H` 权重与在线 `X H` 输入路径已经接入 Llama-3.2-1B W4、LDLQ Hessian 坐标变换和 NQMC 回载；尚未与固定作者代码逐层逐张量核对，也未覆盖非 2 次幂 Kronecker 路径；
 3. A4 与 KV4 均已和局部 Hadamard + shared128 LDLQ W4 路径组合；NQRT v3 上游 E8 语义的完整 W4/W4KV4/W4A4/W4A4KV4 PPL 为 10.076886/10.515783/10.689190/11.232054。与固定上游的非 2 次幂 `kron_h_ip` 和分布式层路径仍需逐项对齐；
 4. QA-LDLQ 公式已实现并完成 Hessian 尺度审计，但在本地 Llama-3.2-1B 配置上没有复现论文增益；
-5. NQMC 提供真实低比特权重存储，运行时仍反量化到 BF16；A/KV 没有 packed 常驻格式或低比特 kernel。
+5. NQMC 提供真实低比特权重存储；独立 NQRT4 runtime 已让完整 1B 的 112 个投影从 packed 常驻码流执行，以 BF16 Tensor Core 累加并保留 57% warm CUDA allocation 收益，但延迟仍慢于 BF16 resident。A/KV 没有 packed 常驻格式或低比特 kernel。
 
 因此当前准确定位是“核心算法复现、Llama-3.2-1B 适配与可审计扩展实验”，还不能表述为论文全部端到端实现完成。
 
@@ -42,7 +42,7 @@
 | block-LDLQ | PDF p.8 §4.3、Appendix B | `coder.py::block_LDL`、`encode_matrix_LDLQ_*` | `core/ldlq.py`、分组 Hessian store | 已实现并完成 shared128 结果 | 归一化口径需持续记录 |
 | QA-LDLQ | PDF p.8-9 §4.5，`W~=WH(H+J)^-1` | `parallel/quant_utils.py` 的 `eps` 调整；`parallel/err.py` | QA 权重调整、激活二阶矩与尺度审计 | 公式实现完成，结果为负 | 本地未复现论文增益 |
 | 实际码率 | PDF p.9 合成公式；p.10 LLM 使用 zstd 压 beta indices | 公开路径保存量化模型 | NQPK/NQRT/NQMC 实测字节和 SHA256 | 权重存储已证明 | 未实现论文相同的 zstd beta 流与低比特执行布局 |
-| 低比特点积 | PDF p.7 Algorithm 4 | 固定仓库有 CUDA/Hadamard 依赖，公开 Python 路径主要是 simulation | 未实现 INT4/E8 fused dot-product kernel | 未完成 | 不能声称吞吐、延迟或低比特常驻显存收益 |
+| packed 权重点积 | PDF p.7 Algorithm 4 | 固定仓库有 CUDA/Hadamard 依赖，公开 Python 路径主要是 simulation | NQRT4 scalar/Triton 与 J2 CUDA fused Linear；完整 1B 的 112 个投影从 packed 流执行，BF16 Tensor Core 累加；固定 batch/ragged CUDA Graph、continuous-batching engine 与服务负载评测 | 工程原型完成 | 不是论文生产 kernel 或 INT4 MMA；当前慢于 BF16 resident；无网络服务和生产级动态调度 |
 | PPL split | PDF p.10 写 WikiText-2 validation | `parallel/ppl.py` 使用 test | 本项目使用 test | 已披露偏差 | 无法确认论文表格最终入口为何与正文不同 |
 | zero-shot | PDF p.10 列 ARC-Easy/Challenge、HellaSwag、Winogrande | 固定 README 表示 zero-shot code 将来加入 | `lm_eval==0.4.13` PIQA/HellaSwag 全量 BF16/W4/W4A4KV4，含数据指纹、任务哈希和逐样本核验 | 项目扩展实验已完成 | PIQA 不是论文任务；任务集合和模型不同，不能称论文 zero-shot 主表复现 |
 

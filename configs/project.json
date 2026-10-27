@@ -60,7 +60,7 @@
     "llm_adapter": "fake_quant_linear_adapters_implemented_and_unit_tested",
     "index_stream_packing_prototype": "NQPK_v1_NQRT_v4_random_access_stateless_dither_NQMC_v1_with_v1_v3_read_compatibility",
     "model_checkpoint_export_validation": "llama32_1b_nqmc_export_reload_and_full_wikitext2_ppl_complete",
-    "model_evaluation": "full_wikitext2_ppl_complete_fake_quant_only",
+    "model_evaluation": "full_wikitext2_ppl_and_downstream_quality_complete; W4 checkpoint also validated through packed full-model runtime",
     "model_evaluation_note": "Llama-3.2-1B Base shared128 matrix complete: W4/W4KV4/W4A4/W4A4KV4 PPL 10.211760/10.668994/10.952032/11.504096 with BF16 lm_head; see results/llama32_1b_shared128_w4a4kv4_progression.md",
     "weight_rotation_ablation": "two_seed_rotation_only_and_two_seed_combined_with_train64_block_ldlq_complete",
     "rotation_ldlq_factorial": "same_source_full_wikitext2_test_two_seed_complete_combined_ppl_10.136666_10.121536",
@@ -74,9 +74,16 @@
     "paper_hadamard_shared128_ldlq_nqrt4_w4": "stateless_random_access_dither_full_ppl_10.070482_checkpoint_sha256_dcecdf797ca08ad435612c2bef4376a098ba1a6107e9a390dc8e9e9e0cbb9aa4",
     "codec_semantics": "new_exports_nqrt_v4_upstream_half_coset_tie_and_stateless_dither; nqrt_v1_v3_read_compatibility_retained",
     "qa_ldlq": "implemented_scale_audited_and_closed_under_bounded_search",
-    "packed_kv_cache": "not_implemented",
-    "packed_low_bit_inference": "not_implemented",
+    "packed_kv_cache": "not_implemented; KV4 remains floating-reconstruction quality simulation",
+    "packed_low_bit_inference": "llama32_1b_all_112_projections_execute_from_resident_nqrt4_streams_with_bf16_tensor_core_accumulation; 57_percent_warm_cuda_allocation_reduction; slower_than_bf16_resident",
+    "cuda_graph_decode": "batch_1_2_4_8_graph_pool_complete; batch2_per_request_positions_active_mask_and_slot_reuse_validated_on_packed_1b; ragged_pool_integration_pending",
+    "online_serving": "host_driven_continuous_batch_engine_validated_on_packed_1b; capacity8_microbatch_8_wait4_selected_from_closed_and_open_loop_sweeps; 600s_real_gpu_soak_passed_17264_requests_86348_tokens_143.79_tokens_per_second_zero_retained_requests; network_api_pending",
+    "service_benchmark": "steady_burst_and_poisson_bimodal_open_loop_complete; selected_8_4_vs_immediate_1_0_three_repetitions_each; 18_of_18_runs_and_864_requests_completed; selected_policy_token_throughput_gain_42.1_46.2_16.2_percent",
+    "service_capacity": "paired_fixed_rate_4_10_20_30_40_50_rps_three_repetitions_complete; saturation_knee_approximately_25_to_30_requests_per_second; throughput_plateau_approximately_129_tokens_per_second",
+    "hybrid_weight_residency": "packed_bf16_six_budget_full_model_pareto_complete; 512_mib_budget_reduces_ttft_42.4_percent_and_tpot_45.8_percent_vs_fully_packed_while_using_36.3_percent_less_cuda_allocated_memory_than_fully_bf16; ragged_cuda_graph_correctness_passed",
+    "cross_model_scale_validation": "llama32_1b_only; 3b_and_8b_not_started",
     "qa_ldlq_primary_result": "Hessian normalization mismatch was 2048x; corrected C=634880 restored W4/W4A4KV4 PPL to 10.283140/11.584234 but did not beat ordinary LDLQ 10.276601/11.578171",
-    "unified_reproduction": "config_driven_preflight_smoke_guarded_full_resume_and_hash_validation_complete"
+    "unified_reproduction": "config_driven_preflight_smoke_guarded_full_resume_and_hash_validation_complete",
+    "publishable_tree": "isolated_tracked_and_nonignored_tree_246_tests_source_wheel_and_sdist_to_wheel_build_installed_console_and_cuda_source_validation_fresh_installed_cuda_e8_compile_run_passed"
   }
 }

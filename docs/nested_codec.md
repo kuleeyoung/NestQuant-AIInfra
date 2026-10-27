@@ -37,4 +37,4 @@ x_hat = r - q Q_E8(r / q)
 - `nestquant/beta_search.py` 已实现 Appendix F 的 First-beta 候选子集动态规划；它通过 `build_candidate_tables` 计算各向量/β的误差与 overload，并由 `select_beta_subset` 选出固定数量的 β。
 - DP 用于挑选 beta 集合；量化器随后仍可对该集合采用 Opt-beta，即按块选重构误差最小的 beta。两者的目标不同，代码和文档将它们分别记录。
 - beta index 在量化计算中是 int64，但 NQPK/NQRT/NQMC 已将其按实际位宽打包；论文网格完整搜索尚未接入。
-- 编解码核心已接入模型级 W4、权重旋转、E8 block-LDLQ、A4/KV4 和 QA-LDLQ 适配。A4/KV4 仍为浮点重构质量仿真，QA-LDLQ 在尺度审计后未优于普通 LDLQ；论文 §4.3 的权重/激活旋转语义尚未与固定上游逐项对齐，也没有低比特推理 kernel，因此不能称完整 NestQuant 复现。
+- 编解码核心已接入模型级 W4、权重旋转、E8 block-LDLQ、A4/KV4、QA-LDLQ 和 NQRT4 packed 权重 runtime。A4/KV4 仍为浮点重构质量仿真，QA-LDLQ 在尺度审计后未优于普通 LDLQ；论文 §4.3 的权重/激活旋转语义尚未与固定上游逐项对齐，packed A/KV 和论文生产 kernel 也未实现，因此不能称完整 NestQuant 复现。

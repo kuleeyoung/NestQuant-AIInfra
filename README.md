@@ -4,6 +4,32 @@
 
 本项目强调可审计证据：固定模型与数据 revision，记录 token 哈希、校准集、配置、耗时和原始 manifest；严格区分质量仿真、真实低比特存储和低比特 kernel 加速。
 
+## 五分钟审阅路径
+
+第一次查看项目时，建议按下面的顺序阅读：
+
+1. 本页“核心结果”和“证据边界”，确认项目解决的问题与不能声称的内容；
+2. [项目架构](docs/architecture.md)，理解算法、模型适配、文件格式、CUDA runtime 和调度的依赖关系；
+3. [当前正式结果](docs/current_results.md)，只引用当前协议，不把历史实验混入结论；
+4. [混合驻留 Pareto](results/llama32_1b_nqrt4_hybrid_pareto.md)，查看显存—TTFT—TPOT 的系统权衡；
+5. [面试讲解手册](docs/interview_guide.md)与[工程故障复盘](docs/incident_postmortems.md)，查看贡献归属、负结果和排错能力。
+
+项目主线：
+
+```mermaid
+flowchart LR
+  A[E8 / multi-beta / LDLQ] --> B[NQPK / NQRT4 / NQMC]
+  B --> C[packed CUDA + BF16 Tensor Core]
+  C --> D[CUDA Graph + ragged KV cache]
+  D --> E[continuous batching]
+  E --> F[service benchmark]
+  C --> G[packed/BF16 hybrid residency]
+  G --> F
+```
+
+核心贡献不是把“模型文件变小”直接等同于“推理加速”，而是分别建立量化质量、实际存储、
+packed-resident 执行、动态调度和显存—延迟策略的证据链。
+
 ## 核心结果
 
 模型与评测协议：
@@ -59,6 +85,9 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **E8 局部优化停止条件**：合并两陪集误差归约会把 down_proj 最大输出误差放大到 0.177734/0.265625 且变慢 1.5%～9.5%；48/56/64 寄存器上限没有跨形状、跨顺序的稳定收益；用残差符号与奇偶性替代第二次 `nearbyint` 虽保持误差不变但变慢 5.7%～16.1%。三条候选均未进入生产分派，说明下一阶段需要改变内核组织或运行时存储权衡，而不是继续做局部代数改写。
 - **全模型端到端推理**：新增 `scripts/benchmark_full_nqrt_model.py`，将 Llama-3.2-1B 全 16 层 112 个 projection 替换为 packed NQRT，统一测量 BF16、scalar packed、Tensor Core packed 的 steady prefill、TTFT、TPOT、生成吞吐和 CUDA 显存。batch size 1、seq 1/128/512 的 Tensor Core packed prefill 为 65.946/64.465/172.981 ms，较 scalar packed 的 116.472/509.092/1,849.901 ms 加速 1.77×/7.90×/10.69×；仍比 BF16 resident 慢 6.35×/5.02×/6.60×。完整模型 warmup 后 CUDA allocation 由 2,390.1 MB 降至 1,028.6 MB（下降 57.0%），证明当前阶段的端到端收益主要是显存—延迟权衡，而非超过 BF16 的低延迟。详见[全模型端到端报告](results/llama32_1b_nqrt4_full_e2e.md)。
 - **全模型 batch/长上下文扩展**：同一端到端 harness 已覆盖 batch 2/4 seq128 与 batch1 seq2048；batch4 Tensor Core packed prefill 为 165.44 ms，scalar packed 为 1,978.86 ms；seq2048 Tensor Core packed 为 562.6 ms，较 scalar packed 的 7,045.8 ms 加速约 12.5×，但仍比 BF16 resident 慢约 5.5×。batch4 的 packed warm allocation 仍约 1.03 GB，seq2048 packed 峰值约 1.00 GB，当前 1B 模型在 RTX 5070 上尚未达到显存容量拐点；下一阶段需要选择更大模型、更多 batch 或更底层 CUDA kernel 才能继续放大系统差异。
+- **可复用 CUDA Graph 解码**：新增固定 batch 的 `NQRTGraphDecodeRunner`，以固定地址 `StaticCache` 捕获完整单 token 模型前向，并允许每次重放更新 token 与 cache position；同时修复 J2 自定义 kernel 未使用 PyTorch current stream、因而可能漏出 Graph 捕获的问题。Llama-3.2-1B packed NQRT4 在 RTX 5070 上连续生成 32 token 与 eager BF16 logits/argmax 完全一致；batch 1 中位 decode-forward 延迟由 40.43 ms 降至 16.61 ms（2.43×），batch 16 由 40.34 ms 降至 20.90 ms（1.93×，765.57 aggregate token/s）。该结果不包含动态请求调度、采样或 tokenizer/网络开销，详见[可复用 CUDA Graph runner 报告](results/llama32_1b_nqrt4_graph_runner.md)。
+- **Continuous-batching 服务负载**：新增统一 open-loop harness，在 steady 50 req/s、16×3 burst 和 Poisson 20 req/s 双峰长短请求上，将选定的 `8/4` admission 与即时 `1/0` 各重复 3 次。预热全部 4～48 prompt width 后，`8/4` 的 token throughput 分别提高 42.1%/46.2%/16.2%，TTFT P95 分别降低 47.5%/51.0%/33.8%；18/18 次 run、864 个请求全部完成且无注册表残留。该结果无 tokenizer/网络，不是生产 QPS，详见[服务级 engine benchmark](results/llama32_1b_nqrt4_service_benchmark.md)。
+- **服务容量拐点**：在请求内容完全配对、只改变到达率的 4/10/20/30/40/50 req/s 扫描中，30→50 offered req/s 仅将 token throughput 从 121.61 提高到 129.10 token/s，却把 TTFT P95 从 335.99 增加到 746.94 ms，定位当前配置约 25～30 req/s 的饱和拐点。该结果是有限合成 engine sweep，不是 HTTP QPS 或无限时长稳定速率，详见[服务容量扫描](results/llama32_1b_nqrt4_service_capacity.md)。
 - **可审计 checkpoint**：bounded-memory inspector 可在不加载模型、不反量化权重的情况下核验 NQMC/NQRT 版本、payload/file SHA-256、codec semantics、tensor 构成和实际码率。
 - **选择性解码基线**：NQMC 支持 O(1) 按名称/alias 定位并只解码一个 tensor；真实 q/down projection 的 CUDA 解码基线已定位 float32 中间张量与峰值内存瓶颈。
 - **分块目标 dtype 解码**：row-range bit unpack 与 bit-exact dither replay 可直接写入 BF16；`down_proj` 的单 tensor CUDA decode peak 从 850.01 MiB 降至 119.13 MiB，尚未接入 GEMM。
@@ -74,7 +103,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 | 真实低比特权重存储 | 已完成 NQMC | 打包文件大小、无 Hessian 回载、回载 PPL 一致性 |
 | 真实低比特激活/KV 存储 | 未完成 | 当前 A/KV 在运行时仍是浮点重构张量 |
 | compiled packed decode kernel | 已完成原型 | 证明真实 packed stream 可直接融合解码，且显著降低单 tensor 解码延迟/中间显存 |
-| Packed-weight fused compute | Tensor Core block 原型完成 | 七个 packed NQRT 投影不物化完整 BF16 权重；相对标量 packed block 加速 1.57～1.73×并保留 73.36% 权重显存节省 |
+| Packed-weight fused compute | Tensor Core block + 固定 batch CUDA Graph 完成 | 七个 packed NQRT 投影不物化完整 BF16 权重；CUDA Graph 在完整 1B decode-forward 上获得 batch 1/16 的 2.43×/1.93× eager 加速，同时保留 packed 权重显存收益 |
 | 优化低比特 GEMM kernel | 未完成 | 不能声称 INT4 Tensor Core GEMM、生产吞吐提升或端到端低比特推理加速 |
 
 train64 block-LDLQ NQMC 文件实测为 659,281,364 字节，能够在不加载 Hessian 的情况下重建权重并复现 PPL 10.276133。该路径仍将权重反量化到 BF16 Linear，因此不代表 INT4 推理加速。
@@ -96,7 +125,42 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 177 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear、共享 Hadamard 缓存、真实 block 选择性替换、grouped QKV/Pair 逐比特一致、Tensor Core block-dot 数值边界、短/长 token 实测 dispatch 及 coordinator 生命周期、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-25 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，177 项及 25 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 246 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear、共享 Hadamard 缓存、真实 block 选择性替换、grouped QKV/Pair 逐比特一致、Tensor Core block-dot 数值边界、短/长 token 实测 dispatch 及 coordinator 生命周期、CUDA Graph runner/Pool、per-request ragged KV cache、host-driven continuous-batching engine、slot 生命周期、admission microbatch、终态请求回收、服务负载生成/统计、配对容量扫描、配置预检、服务报告硬验收/配置绑定/证据提升、混合驻留规划/Pareto 校验与随机/真实 GPU workload soak、统一 runtime 验证编排、仓库发布审计及 Markdown 链接检查、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-27 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，246 项及 25 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+
+最新系统结果增加 packed/BF16 混合权重驻留：在 RTX 5070 上实测六个显存预算点，
+512 MiB 方案相对全 packed 将 TTFT/TPOT 中位数降低 42.4%/45.8%，同时相对全 BF16
+仍减少 36.3% CUDA allocated memory；六点均为本次有限候选集的 Pareto 非支配点。
+策略、完整数据、CUDA Graph 正确性与证据边界见
+[混合驻留 Pareto 报告](results/llama32_1b_nqrt4_hybrid_pareto.md)。
+
+CPU、CUDA E8、J2 current-stream 与完整模型 CUDA Graph smoke 可以通过统一入口验证；默认运行前三项，提供 NQMC 后运行全部阶段。每个子阶段现在以硬断言决定成功/失败，并在 `results/raw/` 写出机器可读报告：
+
+```bash
+python scripts/verify_runtime.py --stage all \
+  --checkpoint results/raw/llama32_1b_paper_hadamard_w4_shared128_ldlq_nqrt4.nqmc
+```
+
+只检查计划而不执行测试、编译或模型加载时使用 `--dry-run`。
+
+公开仓库前运行只读卫生审计；它检查已跟踪及未忽略的新文件中的本机绝对路径、疑似凭据、
+敏感文件名、失效 Markdown 本地链接和超过 10 MiB 的文件，报告不会打印疑似密钥的内容：
+
+```bash
+python scripts/audit_repository.py \
+  --json-output results/raw/repository_audit.json
+```
+
+安装 wheel 后对应命令为 `nestquant-audit-repository`；服务 benchmark JSON 可用
+`nestquant-validate-service-benchmark REPORT.json` 独立验收。正式摘要由
+`nestquant-promote-service-benchmark` 生成，再用 `nestquant-verify-service-evidence` 对 raw、config
+与摘要做逐字段及 SHA-256 一致性复核。
+
+发布前还可在 `/tmp` 隔离复制 Git 会发布的文件，构建 wheel、运行全测试，并验证安装后的
+wheel 包含 CUDA/C++ runtime 源文件：
+
+```bash
+NESTQUANT_PYTHON=/path/to/python bash scripts/smoke_publishable_tree.sh
+```
 
 ## Llama-3.2-1B PPL
 
@@ -149,13 +213,14 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         143 项分层单元测试
+tests/unit/         246 项主项目测试及 25 个参数化 subtests
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 ```
 
 代码分层见 [架构说明](docs/architecture.md)，固定协议见 [实验协议](docs/experiment_protocol.md)，结果入口见 [results/README.md](results/README.md)。
+不租用更大 GPU 时的本地开发顺序、五个完工验收门和目标成熟度见[本地硬件路线与项目完工标准](docs/local_completion_roadmap.md)。
 
 ## 重点文档
 
@@ -187,6 +252,9 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [固定作者代码与局部 Hadamard A4 语义对齐](docs/upstream_activation_alignment.md)
 - [A4 beta 校准协议](docs/activation_beta_calibration.md)
 - [简历证据边界](docs/resume_evidence.md)
+- [90 秒介绍、简历四条与高频追问](docs/interview_guide.md)
+- [工程故障复盘](docs/incident_postmortems.md)
+- [GitHub 发布检查清单](docs/release_checklist.md)
 
 ## 论文与上游来源
 

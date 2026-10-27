@@ -6,6 +6,18 @@
 
 当前推荐引用结果、历史结果和暂缓结果的分层见 [`docs/current_results.md`](../docs/current_results.md)。新报告和简历应优先引用 shared128、BF16 `lm_head` 的正式矩阵；首轮、train64 和普通 W4 NQMC 文档作为开发过程证据保留，不用较旧数字覆盖当前主结果。
 
+Packed 1B continuous-batching engine 已完成 steady、burst 和 Poisson 双峰三类 open-loop
+负载，各自对 `8/4` 与即时 `1/0` 重复 3 次；吞吐、TTFT/TPOT/E2E P50/P95/P99、队列、
+显存、冷形状诊断和证据边界见[服务级 engine benchmark](llama32_1b_nqrt4_service_benchmark.md)。
+同一请求内容下的 4～50 req/s 配对到达率扫描见[服务容量扫描](llama32_1b_nqrt4_service_capacity.md)，
+用于区分线性区、饱和拐点与过载排队，不作为网络服务 QPS。
+
+Packed/BF16 混合权重驻留已完成 0/256/512/768/1024/1400 MiB 六点全模型测试。
+512 MiB 点相对全 packed 将 TTFT/TPOT 中位数降低 42.4%/45.8%，同时比全 BF16 少
+36.3% CUDA allocated memory；完整协议、表格、Graph 正确性和结论边界见
+[混合驻留 Pareto 报告](llama32_1b_nqrt4_hybrid_pareto.md)，可提交的带哈希机器摘要见
+[JSON](llama32_1b_nqrt4_hybrid_pareto.json)。
+
 PIQA/HellaSwag zero-shot 全量 BF16/W4/W4A4KV4 已于 2026-10-24 完成。经协议与逐样本身份校验的分数、耗时和正确性翻转见[正式下游报告](llama32_1b_downstream_full.md)和[机器可读汇总](llama32_1b_downstream_full.json)；约 57 MB/方法的原始逐样本 JSON 与日志继续保留在 `results/raw/downstream_full_20261024/`，不进入 Git。
 
 NQMC 加载器已经完成从整文件/整 state-dict 常驻到分块校验、逐记录回载的改造。同一个 1.04 GB 文件两种加载方式各 3 次的内存与时间对照见[流式回载工程基准](llama32_1b_nqmc_load_benchmark.md)；该数据只属于加载阶段，不作为推理加速证据。

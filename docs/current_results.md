@@ -34,6 +34,14 @@
 | QA-LDLQ 修正尺度 W4/W4A4KV4 | 10.283140 / 11.584234 | [QA-LDLQ 报告](../results/llama32_1b_qa_ldlq_ablation.md) | 负结果；未优于普通 LDLQ |
 | PIQA BF16/W4/W4A4KV4 `acc_norm` | 0.7481 / 0.7367 / 0.7078 | [下游评测报告](../results/llama32_1b_downstream_full.md) | 1,838 题；协议与逐样本身份校验通过 |
 | HellaSwag BF16/W4/W4A4KV4 `acc_norm` | 0.6423 / 0.6282 / 0.5996 | [下游评测报告](../results/llama32_1b_downstream_full.md) | 10,042 题；协议与逐样本身份校验通过 |
+| 完整 1B warm CUDA allocation | BF16 2,390.1 MB / NQRT4 packed 1,028.6 MB（-57.0%） | [端到端 runtime 报告](../results/llama32_1b_nqrt4_full_e2e.md) | 112/112 投影 packed 常驻；当前仍慢于 BF16 resident |
+| CUDA Graph batch 1/16 | packed eager 40.43/40.34 ms → Graph 16.61/20.90 ms（2.43×/1.93×） | [Graph runner 报告](../results/llama32_1b_nqrt4_graph_runner.md) | 固定 batch decode-forward；32-token greedy 一致；不含服务开销 |
+| Continuous batching 服务负载 | `8/4` 相对 `1/0`：steady/burst/bimodal token throughput `+42.1%/+46.2%/+16.2%` | [服务级 engine benchmark](../results/llama32_1b_nqrt4_service_benchmark.md) | 18 次 open-loop 合成 token-ID run；无 tokenizer/网络；不是生产 QPS |
+| Continuous batching 容量拐点 | 配对负载约 25～30 req/s；30→50 offered req/s 时 token throughput 121.61→129.10、TTFT P95 335.99→746.94 ms | [服务容量扫描](../results/llama32_1b_nqrt4_service_capacity.md) | 固定长度分布的有限 engine sweep；不是 HTTP QPS 或无限时长稳定速率 |
+| Packed/BF16 混合驻留 | 512 MiB 预算相对全 packed：TTFT -42.4%、TPOT -45.8%；相对全 BF16：CUDA allocated -36.3% | [混合驻留 Pareto 报告](../results/llama32_1b_nqrt4_hybrid_pareto.md) | 六个预算点的有限候选 Pareto；贪心启发式，不是全组合最优证明 |
+
+服务 workload 的逐要求完成证据见[服务级 benchmark 验收矩阵](service_benchmark_acceptance.md)；
+Gate 4 的混合驻留证据见[正式 Pareto 报告](../results/llama32_1b_nqrt4_hybrid_pareto.md)。
 
 BF16 的 9.758112 来自统一 WSL/CUDA 基线；早期 9.757045 和 QuaRot 兼容路径的 9.762884 属于不同运行路径。它们可以用于各自历史消融，但不能在当前主表中互相替换。
 
@@ -65,5 +73,8 @@ PIQA/HellaSwag 完整评测已于 2026-10-24 完成。W4 相对 BF16 的 `acc_no
 - 已有 packed NQRT 解码融合 BF16 Tensor Core dot 的真实 block 原型；100 次同协议测量中它相对标量 packed block 加速 1.57～1.73×，但仍慢于 BF16 常驻 block，不能声称 INT4 GEMM、端到端模型加速或生产吞吐提升；
 - 长 prefill 的大 M tile 分派在 seq 32/64/128 上相对标量 packed block 加速 2.31×/3.80×/6.16×，同时仍比 BF16 常驻 block 慢 21.9%/26.7%/45.3%；可以陈述 packed runtime 优化收益，不能改写为 BF16 加速收益；
 - profiler 与无语义编译期消融将剩余瓶颈定位到 fused NQRT kernel 内的 stateless RNG/E8 重建：七个 kernel 占 GPU 自耗时 79%～85%，移除 RNG 与两次 E8 投影可减少代表性投影 61%～76% 的 kernel 时间；该消融输出无效，只能作为性能归因，不能作为模型结果；
+- 可以陈述完整 1B packed 权重路径的 warm CUDA allocation 下降 57.0%，但必须同时说明它慢于 BF16 resident；
+- 可以陈述固定 batch CUDA Graph 相对 packed eager 的 2.43×/1.93× decode-forward 加速，但不能外推为 continuous batching、网络服务 QPS 或相对 BF16 加速；
+- 可以陈述固定本机 workload 下 `8/4` admission 相对即时 `1/0` 的 engine 吞吐与尾延迟改善，但不能改写成 HTTP QPS、生产 SLA 或跨硬件通用最优配置；
 - QuaRot 数字来自有明确补丁的兼容移植，不能写成官方发布的 Llama-3.2-1B 结果；
 - 当前实现覆盖论文核心模块，但仍存在 beta 来源、旋转语义和运行时存储方面的差距，不能写成全文逐项复现完成。
