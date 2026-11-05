@@ -133,7 +133,7 @@ def main() -> None:
             f"- NQKV4 throughput median: {throughput['nqkv4_median_tokens_per_second']:.2f} token/s.",
             f"- BF16 KV throughput median: {throughput['bf16_median_tokens_per_second']:.2f} token/s.",
             f"- Paired NQKV4 throughput deficit: {throughput['nqkv4_deficit_percent']:.2f}%.", "",
-            "| stage | NQKV4 median | BF16 median | paired NQKV4 overhead |", 
+            "| stage | NQKV4 median | BF16 median | paired NQKV4 overhead |",
             "|---|---:|---:|---:|",
         ])
         for stage, stage_data in data["stages"].items():

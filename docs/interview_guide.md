@@ -14,7 +14,7 @@
 > BF16，所以我没有把它包装成加速结果，而是继续用 profiler 定位 E8 解码和 launch 开销，
 > 接入 CUDA Graph、ragged KV cache 和 continuous batching，最后实现 packed/BF16 混合
 > 驻留策略。512 MiB 预算相对全 packed 把 TTFT 和 TPOT 中位数降低 42.4% 和 45.8%，
-> 同时比全 BF16 少 36.3% CUDA allocated memory。项目目前有 246 项测试、25 个参数化
+> 同时比全 BF16 少 36.3% CUDA allocated memory。项目目前有 297 项测试、37 个参数化
 > 子测试，并通过 wheel、sdist、隔离安装、链接和敏感信息审计。
 
 正常语速约 85～100 秒。面试时不必机械背诵，应围绕“算法—存储—执行—调度—权衡”五层展开。
@@ -153,16 +153,27 @@ Graph 驱动，导致操作可能漏出捕获。修复方式是从 PyTorch 获�
 发射；随后用 Graph/eager logits、argmax 和连续 token 回归，而不只检查“能运行”。详见
 [故障复盘](incident_postmortems.md)。
 
+另一个典型问题发生在 A4 E8 边界：CUDA 写成
+`x - (round(x - 0.5) + 0.5)`，而上游实际执行
+`(x - 0.5) - round(x - 0.5)`。两式在实数域等价，但 FP32 最后一位不同会改变
+`argmax` 的校正坐标。通过逐块导出归一化值、残差和候选索引，将真实 q_proj 的
+分歧从 3/4096 降到 0，并把 Linear 最大误差从 1.546875 降到 0.0078125。
+这说明低比特边界问题必须核对实际运算顺序，不能只凭代数等价判断实现正确。
+
 ### 15. 如果继续优化，下一步是什么？
 
-先用 Nsight Compute 判断 E8 partial kernel 的 instruction stall、register pressure 和 occupancy；
-然后比较专用 M=1 GEMV 与当前补零 m16 MMA，最后评估 QKV、gate/up 和 Hadamard 融合。不会在
-没有 profiler 证据时盲调 block size，也不会把更强 GPU 当成修复 kernel 结构的办法。
+M16 和 M1 直接 packed W4A4 kernel 均已完成：sequence-16 的完整 1B prefill
+三轮独立试验加速中位数 1.527×；严格 M1-only 单因素实验把 TPOT 从 170.01
+降至 94.53 ms，加速中位数 1.803×。下一步不应继续盲调已完成形状，而应在
+M32/M64/M128 长 prefill 覆盖与“累加差异经 A4 量化放大”的质量协议之间选择。
+无论选择哪条路线，都先用 Nsight Compute 检查 instruction stall、register pressure 和
+occupancy，并继续把 kernel 性能、端到端速度和质量结论分开。
 
 ## 不能说的内容
 
 - 不能说“完整复现论文所有结果”；
-- 不能说“A4/KV4 已真实低比特常驻执行”；
+- 可以说 1B correctness-first 路径已真实消费 packed A4/KV4，但不能外推为所有
+  shape、生产 serving、质量无损或 TPOT/显存普遍收益；
 - 不能说“实现 INT4 Tensor Core GEMM”；
 - 不能说“packed 比 BF16 更快”；
 - 不能把 engine offered req/s 写成生产 HTTP QPS；

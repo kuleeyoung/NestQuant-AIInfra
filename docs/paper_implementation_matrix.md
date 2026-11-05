@@ -7,7 +7,7 @@
 - 作者仓库：`cookiedoth/nestquant`；
 - 固定作者 commit：`6b269f84264afad990a09248d8eeb45d5f6248ff`；
 - 本项目模型：Llama-3.2-1B Base，并非论文主表中的 Llama-3-8B；
-- 审计日期：2026-10-27。
+- 审计日期：2026-10-29。
 
 页码使用 PDF 文件页码。论文正文印刷页码可能比 PDF 页码小一页。无法由论文或固定 commit 确认的内容明确标为“无法确认”，不根据期望结果补全。
 
@@ -19,7 +19,7 @@
 2. 论文 §4.3 的局部 `W H` 权重与在线 `X H` 输入路径已经接入 Llama-3.2-1B W4、LDLQ Hessian 坐标变换和 NQMC 回载；尚未与固定作者代码逐层逐张量核对，也未覆盖非 2 次幂 Kronecker 路径；
 3. A4 与 KV4 均已和局部 Hadamard + shared128 LDLQ W4 路径组合；NQRT v3 上游 E8 语义的完整 W4/W4KV4/W4A4/W4A4KV4 PPL 为 10.076886/10.515783/10.689190/11.232054。与固定上游的非 2 次幂 `kron_h_ip` 和分布式层路径仍需逐项对齐；
 4. QA-LDLQ 公式已实现并完成 Hessian 尺度审计，但在本地 Llama-3.2-1B 配置上没有复现论文增益；
-5. NQMC 提供真实低比特权重存储；独立 NQRT4 runtime 已让完整 1B 的 112 个投影从 packed 常驻码流执行，以 BF16 Tensor Core 累加并保留 57% warm CUDA allocation 收益，但延迟仍慢于 BF16 resident。A/KV 没有 packed 常驻格式或低比特 kernel。
+5. NQMC/NQRT4 提供真实低比特权重存储；NQA4 激活码流由 tiled Triton、显式 opt-in 的 CUDA M16 BF16 Tensor Core 内核或 CUDA M1 GEMV 直接消费；NQKV v2 已接入固定地址 GPU page pool、K1 decode attention 和 Hugging Face 生成。CUDA M16 在完整 1B sequence-16 prefill 的 3 次独立试验中相对 tiled Triton 加速中位数为 1.527 倍；CUDA M1 在严格单因素实验中把 TPOT 从 170.01 ms 降至 94.53 ms，加速中位数为 1.803 倍。两条 CUDA 路径均会因累加顺序和后续 A4 量化导致生成分叉，尚不能宣称端到端质量等价。
 
 因此当前准确定位是“核心算法复现、Llama-3.2-1B 适配与可审计扩展实验”，还不能表述为论文全部端到端实现完成。
 
@@ -36,13 +36,13 @@
 | LLM 权重 beta | PDF p.10：q=14、k=4；正文不足以确认每层值 | `parallel/w_quant.py` 默认 `[4.0,5.5,7.0,18.0]` | 正式候选含 `[3.5,4.5,6.0,14.5,25.0,40.0,50.0,100.0]`；100 只用于 QA outlier | 项目扩展 | 需区分 upstream default、paper grid 与 project extended |
 | 权重—激活匹配旋转 | PDF p.7 §4.3：每个 Linear 使用匹配 H | `parallel/w_quant.py` 与 `parallel/quant_utils.py` 使用 `kron_h_ip` | `models/rotated_linear.py` 保存 `W H` 并在前向在线计算 `X H`；W4、LDLQ、A4/KV4 和 NQMC 元数据已接入 | Llama-3.2-1B 四档完整 PPL 已验证 | 需继续核对非 2 次幂与分布式路径 |
 | 非 2 次幂旋转 | PDF p.7 §4.3：`H1⊗H2`；p.21-22 Table 7 | `hadamard.py::kron_h_ip` 对固定模型尺寸提供硬编码 Hadamard | 当前核心旋转只支持 2 次幂；Llama-3.2-1B 的 2048/8192 输入维度均可覆盖 | 当前目标模型不阻塞 | 若扩展到论文 Llama-3-8B 的 14336 维 down projection，需实现并核对 Kronecker 路径 |
-| Q/K 旋转与 K/V 量化 | PDF p.8-9 §4.3/Fig.4 | `parallel/model.py` post-RoPE 对 Q/K 做 head-dim Hadamard，量化 K/V | `evaluation/kv_cache.py` | 质量路径已实现 | 需做固定上游逐张量等价测试；当前 cache 存浮点重构值 |
-| 激活量化 | PDF p.7-9：Linear 前旋转并量化 | `parallel/quant_utils.py` forward-pre-hook | `evaluation/activation_quantization.py`；普通坐标往返与局部 `X H` 直接 A4 | NQRT v3 局部 A4 完整 PPL 10.689190；与 KV4 组合为 11.232054 | held-out 校准未超过上游默认；仍需核对列并行路径 |
+| Q/K 旋转与 K/V 量化 | PDF p.8-9 §4.3/Fig.4 | `parallel/model.py` post-RoPE 对 Q/K 做 head-dim Hadamard，量化 K/V | `evaluation/kv_cache.py`、`core/kv_format.py`、`runtime/nqkv_*` | 质量路径与 NQKV v2 packed GPU decode 路径已实现 | 需做固定上游逐张量等价测试；未证明 TPOT 加速或所有 batching/beam 语义 |
+| 激活量化 | PDF p.7-9：Linear 前旋转并量化 | `parallel/quant_utils.py` forward-pre-hook | `evaluation/activation_quantization.py`、`runtime/triton_w4a4_linear.py`、`runtime/cuda_w4a4_mma.py` | NQRT v3 局部 A4 PPL 10.689190；packed tiled W4A4 PPL 10.683118；CUDA M16 prefill 与 M1 decode 已完成完整 1B 性能测量 | held-out 校准未超过上游默认；CUDA 路径尚无质量等价结论；仍需核对列并行路径 |
 | A/K/V 默认 beta | 论文正文确认逐层 DP，正文未给 CLI 默认值 | `parallel/ppl.py`：A `[3.47,4.74,6.90,18.11]`，K `[3.50,4.58,6.47,17.06]`，V `[3.53,5.59,9.62,29.03]` | 版本化 KV beta 配置与项目 A beta 常量 | 部分对齐 | 配置需标注 upstream CLI default 或项目校准 |
 | block-LDLQ | PDF p.8 §4.3、Appendix B | `coder.py::block_LDL`、`encode_matrix_LDLQ_*` | `core/ldlq.py`、分组 Hessian store | 已实现并完成 shared128 结果 | 归一化口径需持续记录 |
 | QA-LDLQ | PDF p.8-9 §4.5，`W~=WH(H+J)^-1` | `parallel/quant_utils.py` 的 `eps` 调整；`parallel/err.py` | QA 权重调整、激活二阶矩与尺度审计 | 公式实现完成，结果为负 | 本地未复现论文增益 |
 | 实际码率 | PDF p.9 合成公式；p.10 LLM 使用 zstd 压 beta indices | 公开路径保存量化模型 | NQPK/NQRT/NQMC 实测字节和 SHA256 | 权重存储已证明 | 未实现论文相同的 zstd beta 流与低比特执行布局 |
-| packed 权重点积 | PDF p.7 Algorithm 4 | 固定仓库有 CUDA/Hadamard 依赖，公开 Python 路径主要是 simulation | NQRT4 scalar/Triton 与 J2 CUDA fused Linear；完整 1B 的 112 个投影从 packed 流执行，BF16 Tensor Core 累加；固定 batch/ragged CUDA Graph、continuous-batching engine 与服务负载评测 | 工程原型完成 | 不是论文生产 kernel 或 INT4 MMA；当前慢于 BF16 resident；无网络服务和生产级动态调度 |
+| packed W/A/KV runtime | PDF p.7 Algorithm 4；p.8-9 §4.3/Fig.4 | 固定仓库有 CUDA/Hadamard 依赖，公开 Python 路径主要是 simulation | NQRT4 W4、NQA4、NQKV v2；完整 1B 的 112 个投影从 packed W4A4 流执行，K1 读取 packed KV；CUDA M16 使用 BF16 Tensor Core 累加，CUDA M1 使用 4-lane CUDA Core GEMV；另有 Graph、continuous batching 与服务负载评测 | correctness-first 工程原型完成 | 不是论文生产 kernel 或 INT4 MMA；M2/更宽 M tile、CUDA 质量等价、网络服务和生产级动态调度未完成 |
 | PPL split | PDF p.10 写 WikiText-2 validation | `parallel/ppl.py` 使用 test | 本项目使用 test | 已披露偏差 | 无法确认论文表格最终入口为何与正文不同 |
 | zero-shot | PDF p.10 列 ARC-Easy/Challenge、HellaSwag、Winogrande | 固定 README 表示 zero-shot code 将来加入 | `lm_eval==0.4.13` PIQA/HellaSwag 全量 BF16/W4/W4A4KV4，含数据指纹、任务哈希和逐样本核验 | 项目扩展实验已完成 | PIQA 不是论文任务；任务集合和模型不同，不能称论文 zero-shot 主表复现 |
 
@@ -56,7 +56,7 @@
 2. 已与 shared128 LDLQ 组合，并完成 W4/W4KV4/W4A4/W4A4KV4 完整递进；逐层 beta 校准在独立 train held-out 上未超过上游默认，因此未推广；
 3. 对固定上游和本项目的量化前张量、旋转后张量、重构张量逐层比较；
 4. 扩展到非 2 次幂模型时，实现并核对 `H1⊗H2` Kronecker 路径；
-5. Q/K 的 post-RoPE 旋转与 KV4 已组合验证；packed KV cache 和低比特 kernel 仍保持为独立工程项。
+5. Q/K 的 post-RoPE 旋转与 KV4 已组合验证；NQKV v2 packed cache/K1 kernel 已作为独立工程扩展接入完整 1B 生成，不冒充固定上游生产 kernel。
 
 这条路线先解决 NestQuant 自身的语义一致性，不把 QuaRot 的全模型变换结构强加给 NestQuant。
 

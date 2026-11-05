@@ -140,6 +140,29 @@ editable package。这样的“本机通过”不能证明 GitHub 用户可以�
 
 仓库审计器另行检查本机绝对路径、敏感文件名、疑似凭据、失效 Markdown 链接和大文件。
 
+## 6. split-K 更接近 FP64 oracle，仍不能直接默认启用
+
+### 现象
+
+`M=1,K=8192,N=2048` split-8 将孤立 kernel 延迟从约 977 us 降至约 374 us，并改善 HTTP TPOT；但相同请求从第二个生成 token 起与 unsplit 分叉。静态敏感层 fallback 在小 prompt 集上有效，又被扩展 token-ID 集合中的反例否决。
+
+### 归因
+
+split-K 把一条连续 FP32 FMA 链改成多个独立 partial 和最终 reduction，浮点结合顺序必然变化。raw-FP32、partial、Kahan 和 FP64 reducer 探针证明最终 reduction 不是主因；以 BF16 解码值的 FP64 点积为 oracle 时，普通 split-8 的平均绝对误差反而比 unsplit 低约 10.7%。因此 token 分叉是合法舍入路径变化经后续层、KV4 和小 logit margin 放大的结果，不是已经证明的 kernel 算术缺陷。
+
+### 处理
+
+- 保持生产默认 unsplit，split-K 只允许显式 opt-in；
+- 不再追求静态层黑名单或用旧 kernel 逐位相等定义数学正确性；
+- 建立 teacher-forced decode：两条路径始终接收相同 token，比较目标 NLL、KL 和 logit；
+- 使用 AB/BA 交替、ABA/BAB 重放、数据/采样哈希和上下文级 bootstrap；
+- 在扩大样本前预声明 1% 相对 PPL 非劣性边界，避免看结果后修改标准；
+- 质量门禁与既有性能门禁都通过后，才允许讨论默认启用。
+
+### 防复发
+
+任何改变并行归约顺序的 kernel 优化，都必须分别回答三件事：局部算术是否接近高精度 oracle、模型质量是否满足预声明阈值、端到端服务是否获得稳定收益。逐 token 等价、平均数值误差和模型质量是三个不同证据，不能互相替代。
+
 ## 复盘原则
 
 - 先建立最小复现，再修改实现；

@@ -134,7 +134,6 @@ def launch_pack_full_hot_pages_graph_safe(
         num_warps=1,
     )
 
-
 def _quantize_full_hot_pages(
     cache: NQKVHotColdCache,
 ) -> tuple[torch.Tensor, ...]:

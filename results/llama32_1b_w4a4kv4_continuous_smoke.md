@@ -81,4 +81,3 @@ memory-saving service claim.
 - M2 split-K kernel and Graph report: `w4a4_m2_down_splitk.md`
 - BF16-KV raw run: `raw/llama32_1b_w4a4_bf16kv_service_smoke.json`
 - Smoke config: `../configs/service_benchmark_nqkv_smoke.v1.json`
-

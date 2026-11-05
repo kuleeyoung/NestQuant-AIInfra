@@ -7,8 +7,8 @@ Llama-3.2-1B 的可复现量化、真实 packed 权重执行、动态请求调�
 服务级测量和可公开仓库。3B/8B 属于后续规模扩展，不阻塞本地项目结项。
 
 “完工”不等于论文全部细节、生产级在线服务或真正的 INT4 Tensor Core GEMM。
-以下三项明确保留为后续工作：跨模型规模验证、packed A/KV compute、直接
-INT4 MMA 数据通路。
+以下三项明确保留为后续工作：跨模型规模验证、生产级在线服务、直接
+INT4 MMA 数据通路。packed A/KV compute 已在 1B correctness-first 范围内接通。
 
 ## 完工验收门
 
@@ -120,31 +120,37 @@ repetition 的请求内容、只改变到达率。token throughput 在 30 req/s 
 
 验收：在新目录按 README 完成安装和 smoke；简历中的每个数字可定位到仓库报告。
 
-当前进度（2026-10-27）：README 已增加五分钟审阅路径与系统主线图；架构说明覆盖从 E8、
-NQMC/NQRT4 到 J2、Graph、scheduler 和混合驻留；新增工程故障复盘、简历四条、90 秒介绍、
-15 个高频追问和发布检查清单。隔离发布树已完成 source wheel、246 项测试、sdist→wheel、
-独立安装、console entry point 和 CUDA 源文件检查；仓库审计 381 个可发布文件、0 finding。
+当前进度（更新于 2026-11-04）：README 已增加五分钟审阅路径与系统主线图；架构说明覆盖从
+E8、NQMC/NQRT4 到 J2、Graph、scheduler、在线服务和混合驻留；工程故障复盘、简历四条、
+90 秒介绍、高频追问和发布检查清单已经闭环。正式工作区测试为 434 passed、64 subtests
+passed。隔离发布树在不携带本机 CUTLASS CuTe 头文件的条件下为 432 passed、2 skipped、
+62 subtests passed；两个 skip 均有明确外部依赖原因。source wheel、sdist→wheel、独立安装、
+七个 console entry point 和 CUDA runtime 源文件检查全部通过。仓库审计覆盖 608 个可发布文件，
+结果为 0 finding。M1 split-K 已完成 production NQKV Graph teacher-forced 正式质量协议；
+2,048 contexts、65,536 个配对 decode 决策的相对 PPL 为 -0.0932%，20,000 次 bootstrap
+95% CI 为 [-0.5664%, +0.3658%]，通过预声明的 1% 非劣性门槛。结合既有 10 对服务 A/B，
+在线服务已对精确 M1 8192→2048 down-projection 默认启用 split-8，并保留显式关闭回滚。
 Gate 5 的技术与材料验收已经通过。尚未替用户执行 Git commit、创建远程仓库或发布 release，
 这些属于对外状态变更，应在用户确认仓库归属与提交方案后执行。
 
 ## 完工时的目标成熟度
 
-“当前”列已按 2026-10-27 的 D1 soak、服务负载和容量扫描更新。
+“当前”列已按 2026-11-02 的 D1 soak、服务负载、多页 NQKV 与 HTTP 服务更新。
 
 | 层级 | 当前 | 本地完工目标 | 完工判据 |
 |---|---:|---:|---|
 | E8/NestQuant 核心算法 | 90% | 92% | 核心模块和边界测试稳定；未实现论文细节列入矩阵 |
 | 1B 量化质量评测 | 90% | 95% | 正式 PPL、下游任务、消融和结果索引一致 |
-| 真实低比特存储 | 95% | 98% | NQMC/NQRT v4、随机访问、校验、独立回载和文档完整 |
-| packed CUDA runtime | 85% | 85% | 完整模型、长时间负载与混合驻留 Pareto 已验证；仍慢于 BF16 resident |
-| CUDA Graph decode | 90% | 95% | 固定 batch Pool 与 capacity-8 ragged Graph 已验证；尚差 ragged 多容量池统一 |
-| 在线推理服务 | 78% | 80% | engine 调度、slot 生命周期、tail latency、容量曲线与 soak 完成；无网络 API |
+| 真实低比特存储 | 98% | 98% | NQMC/NQRT v4、NQA4、NQKV v2、随机访问、校验、独立回载和文档完整 |
+| packed CUDA runtime | 98% | 95% | 完整 W4A4KV4 与 M1/M2/M4/M8/M16/M32/M64/M128 已验证；M1 down split-K 已通过服务性能门和 2,048-context、1% teacher-forced PPL 非劣性门，在线服务对精确形状默认启用且可显式回滚；自回归 token 不保证一致，直接 INT4 MMA 仍未完成 |
+| CUDA Graph decode | 98% | 95% | capacity-4 已实现 M1/M2/M4 ragged Graph pool、非连续逻辑槽位映射与 compact prefill，NQKV 普通/边界双 Graph 已验证；逐 token 主机边界检查尚未消除，compact prefill 暂走通用事务 writer |
+| 在线推理服务 | 95% | 92% | 调度、取消/超时/背压、HTTP/NDJSON、600 秒 hot-tail soak、120 秒跨页 cold-page soak、M1/M2/M4 Graph 命中观测与 fixed/full 三对交错 A/B 已完成；生产鉴权/TLS/多副本不属于本地完工门槛 |
 | 跨模型规模验证 | 20% | 20% | 明确保留为云端扩展，不作为本地完工门槛 |
-| GitHub 发布准备 | 95% | 95% | 材料、隔离发布树、wheel、测试和审计通过；仅剩用户确认后的提交与远程发布 |
-| 作为简历项目 | 95% | 92%～95% | 简历四条、90 秒介绍、追问、故障复盘及数字证据已闭环 |
+| GitHub 发布准备 | 97% | 97% | 材料、隔离发布树、wheel/sdist、测试和审计通过；仅剩用户确认后的提交与远程发布 |
+| 作为简历项目 | 97% | 95%～97% | 简历四条、90 秒介绍、追问、故障复盘及新 W4A4KV4/M16 数字证据已闭环 |
 
 本地路线不会把下列项目写成 100%：论文全量复现、生产 serving、跨模型规模、
-packed A/KV、INT4 Tensor Core GEMM。保留这些边界比虚构 100% 更可信。
+INT4 Tensor Core GEMM、CUDA W4A4 端到端质量等价。保留这些边界比虚构 100% 更可信。
 
 ## 执行顺序与时间盒
 
@@ -167,5 +173,5 @@ NQRT4 packed 权重存储和 BF16 Tensor Core 累加 runtime，并实现多 batc
 Graph Pool 与 continuous-batching 调度原型；在固定 workload 下报告显存、P50/P95/P99
 TTFT/TPOT 和吞吐，形成可复现的显存—延迟 Pareto 曲线。
 
-仍不得陈述：在 3B/8B 上验证、超过 BF16 resident 延迟、生产级 QPS、真实 packed
-A4/KV4、INT4 Tensor Core GEMM 或论文所有数字逐项复现。
+仍不得陈述：在 3B/8B 上验证、超过 BF16 resident 的完整工作负载延迟、生产级 QPS、
+INT4 Tensor Core GEMM、M16 端到端质量无损或论文所有数字逐项复现。

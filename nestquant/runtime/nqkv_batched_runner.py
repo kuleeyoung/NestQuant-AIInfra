@@ -376,4 +376,3 @@ class BatchedNQKVLlamaRunner:
             raise ValueError("slot_mask must be on the model device")
         slots = slot_mask.nonzero(as_tuple=False).flatten().cpu().tolist()
         self.cache.release_slots(slots)
-

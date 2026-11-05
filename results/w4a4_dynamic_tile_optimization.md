@@ -86,4 +86,3 @@ not by an insufficiently large tile. The next pure-packed optimization requires
 an architectural kernel change: staged packed-weight decode, shared-memory
 reuse, and Tensor-Core compute in a custom pipeline rather than another launch
 parameter sweep.
-

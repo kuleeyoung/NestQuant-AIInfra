@@ -40,7 +40,8 @@ repository audit:  366 publishable files, 0 findings
 - 请求取消、超时、限流和租户隔离；
 - 无限时长稳定到达率和生产 SLA；
 - 3B/8B 跨模型规模复现；
-- packed A/KV 和直接 INT4 Tensor Core GEMM。
+- 本轮服务基准未覆盖 packed A/KV；后续独立 correctness-first runtime 已完成，不能
+  倒推成本轮 benchmark 的服务性能证据；直接 INT4 Tensor Core GEMM 仍未实现。
 
 这些未完成项不能从本轮 engine benchmark 外推。下一阶段是否进入混合权重缓存、网络服务或
 GitHub/面试交付，见 [`next_route_decisions.md`](next_route_decisions.md)。

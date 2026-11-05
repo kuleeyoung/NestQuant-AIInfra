@@ -529,4 +529,3 @@ def _validate_hot_ragged_inputs(
         raise ValueError("write_mask must be bool with shape [batch, tokens]")
     if slot_ids.device != pool.device or write_mask.device != pool.device:
         raise ValueError("slot_ids and write_mask must be on the cache device")
-

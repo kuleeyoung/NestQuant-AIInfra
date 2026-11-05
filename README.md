@@ -32,6 +32,119 @@ packed-resident 执行、动态调度和显存—延迟策略的证据链。
 
 ## 核心结果
 
+- **直接 packed W4A4 CUDA M1 GEMV**：为自回归单 token decode 实现 4-lane
+  协作式 NQA4×NQRT4 矩阵—向量 kernel。112/112 个真实投影通过审计，四类
+  projection 微基准相对 tiled Triton 加速 1.230～3.936×。在严格 M1-only
+  单因素实验中，prefill 保持 tiled 不变，完整 1B TPOT 三轮中位数由
+  170.01 降至 94.53 ms，加速 **1.803×**（1.790～1.815×）；每轮 M1 命中
+  896 次、无 decode fallback。生成序列仍会因累加顺序和后续 A4 量化而分叉，
+  因此后端保持显式 opt-in，不声明质量等价。详见
+  [CUDA M1 报告](results/llama32_1b_w4a4_cuda_gemv_m1.md)。
+
+- **直接 packed W4A4 CUDA Tensor Core M16**：实现从 NQA4/NQRT4 位流直接恢复
+  BF16 fragment 并执行 `mma.sync.m16n8k16` 的自定义 CUDA kernel。真实 q_proj 的
+  4096 个 E8 激活块与上游逐位一致，CUDA/Triton 输出最大误差 `0.0078125`；7 组
+  交错微基准中位数为 411.41 对 552.34 μs，加速 **1.343×**。接入完整 1B 的
+  112 个投影后，3 次独立试验的 sequence length 16 prefill 中位数由 178.93 降至 117.17 ms，
+  加速中位数 **1.527×**（1.518～1.544×）；每轮运行时计数确认 1,232 次 M16 自定义内核命中。
+  实际扩展经 `cuobjdump` 反汇编确认包含 `HMMA.16816.F32.BF16` SASS，而非只依赖源码中的内联 PTX。
+  该后端为显式 opt-in；多层 A4 重新量化会放大不同 MMA 累加顺序的微小差异，因此尚不声明端到端质量等价。详见
+  [CUDA M16 报告](results/llama32_1b_w4a4_cuda_mma_m16.md)。
+
+- **large-M staged CUDA production family**：将 decoded-weight shared-memory
+  staging 从 M128 推广到 M32/M64/M128，并接入 `packed_w4a4_cuda_mma`
+  自动调度；q-proj 在 RTX 5070 上相对 tuned Triton 分别为
+  **1.642×/1.909×/1.503×**，三种行数与既有 CUDA 实现 BF16 bit-exact。
+  完整 1B 的 batch-1 seq32/64 prefill 相对 tiled Triton 分别加速
+  **1.464×/1.603×**；M64 扩大到 512 个配对窗口后 PPL 仅增加 0.170%、
+  评测加速 1.557×。完整 logits 与后续 greedy token 仍不等价，因此不声明
+  端到端质量无损。
+  CUTLASS/CuTe 4.8.0 用于独立验证布局与资源开销，正式运行路径不依赖
+  CUTLASS。该路径使用 packed W4/A4 和 BF16 Tensor Core 累加，不宣称原生
+  INT4 Tensor Core GEMM。详见
+  [M32/M64/M128 报告](results/w4a4_large_m_multiwarp_probe.md)。
+
+- **动态 M chunk+padding 生产路径**：正式服务负载中 decode 的 260/260 次
+  forward 均为已覆盖的 M8，但 prefill 仅 8/105 次精确命中固定 family；新增
+  M128 分块加尾块 padding 的任意 M 路径后，结构模拟额外行数仅 11.19%。真实
+  q-proj 的 M40/M120/M240/M384 相对 tuned Triton 加速
+  **1.869×/1.475×/1.382×/1.233×**；完整 1B seq40/120 prefill 加速
+  **1.453×/1.394×**。详见
+  [动态 M 报告](results/w4a4_dynamic_m_chunked_staged.md)。
+  在 selected `8/4`、steady 50 req/s 合成 continuous-batching 负载的 3 次
+  配对中，CUDA 相对 tiled W4A4 的 token throughput 中位提升 **51.96%**，
+  TTFT/TPOT/E2E P95 中位分别下降 **37.00%/31.76%/36.24%**；所有请求完成，
+  burst 的吞吐提升 **61.21%**，Poisson 双峰负载提升 **49.84%**；所有请求
+  完成。该结果不包含 tokenizer、网络或生产 SLA。
+
+- **packed W4A4 动态 tile 优化**：在保持 `BLOCK_K=32` 和逐元素输出不变的前提下，
+  根据 token 数及投影形状动态选择 M/N tile 和 8 warps。Llama-3.2-1B batch-one
+  的 1/17/128-token prefill 分别由 208.72/332.14/1025.41 ms 降至
+  191.52/235.29/427.29 ms，最长场景加速 **2.40×**；decode TPOT 从
+  214.37 ms 降至 177.03 ms。当前仍慢于 BF16，边界与拆解见
+  [动态 tile 优化报告](results/w4a4_dynamic_tile_optimization.md)。后续 M128 和
+  K64/K128 探针均因寄存器压力变慢，说明下一步需要改变内核流水线，不能再靠放大
+  Triton tile 获得主要收益。
+
+- **真实 packed W4A4 完整质量评测**：tiled packed W4A4 后端完成 WikiText-2
+  全量 141 个窗口、288,627 个预测 token，112/112 个投影均使用 packed W4A4，
+  得到 PPL **10.683118**；总耗时 2,094.98 秒，峰值 CUDA allocated 约 1.53 GiB。
+  该评测采用 `use_cache=False`，因此只证明 packed W4A4 质量，不把 KV4 计入
+  此 PPL 声明。原始证据和边界见
+  [packed W4A4KV4 runtime 报告](results/llama32_1b_packed_w4a4kv4_runtime.md)。
+
+- **真实 packed W4A4KV4 首次完整运行**：Llama-3.2-1B 的 112 个投影全部使用
+  NQRT4 packed 权重，并在 CUDA 上将投影输入编码为 4-bit E8 residue 后由
+  W4xA4 Triton kernel 直接读取；16 层同时使用 NQKV v2 packed KV。17-token
+  跨页 prefill 后，标准 `model.generate()` 成功生成 3 token，记录到 336 次 A4
+  kernel 调用。最大单次 A4 payload 从同形状 BF16 的 278,528 B 降至 74,068 B，
+  减少 73.41%。当前是一 token/输出行一个 program 的正确性原型，不能声称性能
+  加速，详见 [packed W4A4KV4 runtime 报告](results/llama32_1b_packed_w4a4kv4_runtime.md)。
+
+- **真实 Llama-3.2-1B NQKV 后端闭环**：自定义 Hugging Face `Cache` 与注册式
+  `AttentionInterface` 已接入完整 16 层模型；17-token 因果 prefill 跨过 16-token
+  页面边界，再连续 decode 2 token 后，全部层缓存长度均为 19 且 logits 有限。
+  标准 `model.generate()` 也已连续生成 3 token。本机单次观测的第二次热态 decode
+  为 19.48 ms；这不是稳定吞吐基准，详细协议与
+  证据边界见 [真实模型后端 smoke test](results/llama32_1b_nqkv_hf_backend_smoke.md)。
+
+- **完整 1B W4A4KV4 双 CUDA Graph 服务路径**：固定容量 continuous-batching
+  runner 分别捕获普通单-token decode Graph 和“写满热页并打包为 NQKV4”边界
+  Graph；CPU 只在边界前预留物理页、重放后提交所有权，不再回退执行完整模型或
+  KV 编码。两次连续跨页回归中，Graph 与 eager 的 logits、冷页 payload 和回载
+  K/V 均逐位一致，边界回退为 0，终态物理页全部回收。真实 Llama-3.2-1B smoke
+  从原始 eager 的 8.03 提升到初版双 Graph 的 9.49 token/s；profiling 后为
+  `M=2, K=8192, N=2048` 下投影加入确定性 split-8，三次 hot smoke 中位达到
+  11.89 token/s、TPOT P95 181.67 ms，完整双 Graph GPU 时间减少 21.77%；
+  随后加入一次验证、多层复用的 GPU ragged sub-page writer，partial-capacity
+  smoke 五次中位达到 12.41 token/s、TPOT P95 171.02 ms；单层 GPU-only writer
+  相对原事务路径为 7.51x，写满或跨页仍安全回退；
+  20 对同进程交替 A/B 进一步确认吞吐 12.34→13.61 token/s（配对中位
+  +9.72%，bootstrap 95% CI [+7.84%, +11.49%]），TTFT/TPOT/E2E P95 四项
+  均 20/20 对改善；
+  随后将“单页刚好写满”的 ragged prefill 与 graph-safe NQKV pack/publish 融合，
+  并加入已发布页异常回滚；20 对同进程交替 A/B 的吞吐配对中位提升 16.22%，
+  TTFT/TPOT/E2E P95 分别改善 16.16%/13.02%/15.02%，四项均 20/20 胜出；
+  该优化只覆盖连续前缀的单页内写入，跨页仍走事务 fallback，详见
+  [单页融合报告](results/nqkv_full_page_pack_paired_ab.md)；
+  在此基础上，最多跨一个页边界的 prefill 会按行拆成“填满旧页”和“写入新热尾”
+  两段，20 对 prompt-20 A/B 的吞吐配对中位提升 **22.25%**，TTFT/TPOT/E2E P95
+  分别改善 **20.24%/17.37%/19.31%**，四项仍为 20/20 胜出；异常时采用
+  fail-closed，释放所有受影响请求，详见
+  [跨页分段报告](results/nqkv_cross_page_paired_ab.md)；
+  通用多页 planner 与 round writer 已支持一次产生任意有限数量的完整页，1B prompt
+  32/48/64/80（2～5 页）均通过；初版逐槽位 page encoder 未过性能门，随后将同轮
+  固定槽位合并为一次 Key 和一次 Value 编码。prompt-64、capacity-2 的 20 对单变量
+  A/B 中，批量编码令吞吐提升 **25.12%**，TTFT/TPOT/E2E P95 分别改善
+  **22.14%/21.62%/20.89%**，四项均 20/20 改善且置信区间不跨 0，现已提升为
+  runner 默认多页路径；旧逐槽位实现仍作为可选 reference/fallback。详见
+  [批量编码独立 A/B](results/nqkv_batched_pack_isolated_paired_ab.md)；
+  同版本三次 BF16-KV 中位为 14.17 token/s、151.75 ms，KV4 路径仍有 16.1%
+  吞吐差距，不宣称相对 BF16 加速；
+  专门边界 workload 的边界步由旧 eager fallback 的 244.2 ms 降到 88.2 ms。
+  这些是单次本机 smoke，不是生产 SLA，详见
+  [W4A4KV4 continuous smoke](results/llama32_1b_w4a4kv4_continuous_smoke.md)。
+
 模型与评测协议：
 
 - `meta-llama/Llama-3.2-1B`
@@ -49,6 +162,7 @@ packed-resident 执行、动态调度和显存—延迟策略的证据链。
 | NestQuant block-LDLQ W4，共享校准 | 10.277472 | 与 QuaRot 相同的 128 个随机训练窗口；量化 `lm_head` |
 | NestQuant block-LDLQ W4，同范围 | **10.211760** | 128 个共享窗口；与 QuaRot 一样保留 `lm_head` BF16 |
 | NQRT v4 stateless dither + 论文式 Hadamard + shared128 LDLQ W4 | **10.070482** | 112/112 v4 record；完整 NQMC 回载；支持 GPU tile 随机访问 dither |
+| NQRT v4 tiled packed W4A4 runtime | **10.683118** | 112/112 投影真实 packed W4A4；完整 WikiText-2；`use_cache=False`，不含 KV4 |
 | 论文式 Hadamard + shared128 LDLQ W4/W4KV4/W4A4/W4A4KV4 | **10.076886 / 10.515783 / 10.689190 / 11.232054** | NQRT v3 上游 E8 语义；A4/KV4 为质量仿真 |
 | 论文式 Hadamard + shared128 LDLQ W4A4 | **10.689190** | NQRT v3；A4 直接作用于局部 `X H`；固定上游全局 beta |
 | NestQuant W4KV4，共享校准 | 10.668994 | 同一 NQMC W4；E8 post-RoPE K/V fake quant |
@@ -69,6 +183,7 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 - **Multi-beta**：实现 Appendix F First-beta 子集动态规划，并与穷举搜索交叉验证。
 - **模型权重量化**：独立 E8 block W4、8-column block-LDLQ、Hessian 坐标旋转和 QA-LDLQ 适配。
 - **激活与 KV**：七类 Llama Linear 输入 A4；post-RoPE Q/K 匹配旋转；逐 attention-head KV4。
+- **NQKV v2 packed KV runtime**：固定容量 E8 页面已接入双 Key/Value beta table、固定地址 CUDA page pool、逻辑页表、BF16 hot tail、GPU-only fused writer、K0 oracle、两阶段 K1 GQA，以及普通 decode/页边界 pack 双 CUDA Graph。page 16、8 KV heads、head_dim 64 下，K+V 为 9,728 B，相比 BF16 减少 70.31%；使用真实 1B beta 的 128-token K0/K1/Graph 为 4,172.32/67.87/65.70 us，K1 比 K0 快 61.48×。v1 仍可读取，v2 container 只增加 18 B，详见 [GPU pipeline report](results/nqkv_gpu_k0_v1.md)和[完整模型服务 smoke](results/llama32_1b_w4a4kv4_continuous_smoke.md)。
 - **真实权重容器**：NQPK/NQRT/NQMC 固定宽度码流、beta ID、row norm、dither 状态、共享权重别名及完整模型回载。
 - **NQRT v4 与 compiled runtime 原型**：stateless random-access dither 在 CPU/CUDA 与任意分块下逐比特一致；真实 1B checkpoint PPL 10.070482；单个 tiled Triton kernel 融合 packed code/beta 读取、dither、E8 重建和行缩放，真实 checkpoint 112/112 权重与参考 BF16 输出逐比特一致。它仍会物化 BF16 权重，尚未融合 GEMM。
 - **存储路径与整模型 runtime 诊断**：同一 NQMC 的 112 条量化记录在 WSL ext4 与 Windows `/mnt/d` 上交替读取 7 轮，均值为 0.121/1.485 秒；ext4 上 warm lazy forward 为 0.298/0.314 秒，CUDA peak 846 MB，logits 与完整反量化基线逐比特一致，但仍慢于 78.18 ms 的 BF16 常驻基线。
@@ -101,10 +216,10 @@ PIQA/HellaSwag zero-shot 全量评测也已完成。NQMC W4 相对 BF16 的 `acc
 |---|---|---|
 | 量化质量仿真 | 已完成 | 相同任务协议下的 PPL 和量化误差 |
 | 真实低比特权重存储 | 已完成 NQMC | 打包文件大小、无 Hessian 回载、回载 PPL 一致性 |
-| 真实低比特激活/KV 存储 | 未完成 | 当前 A/KV 在运行时仍是浮点重构张量 |
+| 真实低比特激活/KV 存储 | NQA4 真实 packed 激活、Triton tiled、CUDA M1/M2/M4/M8/M16/M32/M64/M128，NQKV v2 双 beta GPU pool、K0/K1 attention 与 Hugging Face 后端已完成 | 完整 1B W4A4KV4 已跑通；CUDA 后端为显式 opt-in，非离散 M 仍回退 tiled Triton，端到端质量边界须随具体 backend 一并报告 |
 | compiled packed decode kernel | 已完成原型 | 证明真实 packed stream 可直接融合解码，且显著降低单 tensor 解码延迟/中间显存 |
 | Packed-weight fused compute | Tensor Core block + 固定 batch CUDA Graph 完成 | 七个 packed NQRT 投影不物化完整 BF16 权重；CUDA Graph 在完整 1B decode-forward 上获得 batch 1/16 的 2.43×/1.93× eager 加速，同时保留 packed 权重显存收益 |
-| 优化低比特 GEMM kernel | 未完成 | 不能声称 INT4 Tensor Core GEMM、生产吞吐提升或端到端低比特推理加速 |
+| 优化低比特 GEMM kernel | M1/M2/M4/M8/M16/M32/M64/M128 自定义 CUDA 已接入；large-M 使用共享内存 staged 权重复用 | sequence-16 prefill 三轮加速中位数 1.527×；M1-only TPOT 三轮加速中位数 1.803×；M32/M64/M128 q-proj 对 tuned Triton 为 1.642×/1.909×/1.503×；仍不能声称原生 INT4 Tensor Core GEMM 或无条件端到端质量无损 |
 
 train64 block-LDLQ NQMC 文件实测为 659,281,364 字节，能够在不加载 Hessian 的情况下重建权重并复现 PPL 10.276133。该路径仍将权重反量化到 BF16 Linear，因此不代表 INT4 推理加速。
 
@@ -125,7 +240,23 @@ python scripts/demo_beta_search.py
 python scripts/run_synthetic_matrix_product.py
 ```
 
-当前共有 246 项主项目测试，覆盖 E8、codec、上游边界 tie-break、NQRT v1-v4 语义兼容、v4 stateless dither 的 CPU/CUDA 与任意分块逐比特一致、multi-beta、beta来源防漂移、离线权重/在线激活Hadamard等价路径、局部 Hadamard 坐标 A4、A4 beta 配置、held-out 窗口隔离与模型级事务替换、旋转元数据回载、LDLQ、packing、流式checkpoint读写、单层 lazy NQMC Linear、共享容量受限 LRU 权重缓存、真实模型自动 lazy 替换及同步分阶段剖析、Triton 定宽流拆包、混合解码、tiled 融合解码、真实 Voronoi 边界回归、packed fused Linear、共享 Hadamard 缓存、真实 block 选择性替换、grouped QKV/Pair 逐比特一致、Tensor Core block-dot 数值边界、短/长 token 实测 dispatch 及 coordinator 生命周期、CUDA Graph runner/Pool、per-request ragged KV cache、host-driven continuous-batching engine、slot 生命周期、admission microbatch、终态请求回收、服务负载生成/统计、配对容量扫描、配置预检、服务报告硬验收/配置绑定/证据提升、混合驻留规划/Pareto 校验与随机/真实 GPU workload soak、统一 runtime 验证编排、仓库发布审计及 Markdown 链接检查、A4/KV4、PPL 聚合与进度回调、共享校准清单、统一复现入口、下游评测cache隔离与同协议汇总、量化范围排除和量化事务回滚。2026-10-27 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，246 项及 25 个 subtests 全部通过。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+当前共有 434 项主项目测试，覆盖 E8、codec、NQRT v1-v4、NQKV v1/v2 容器、真实 packed A4、共享 A4 编码、scalar oracle、动态 tiled `tl.dot` W4xA4 kernel、CUDA M1/M2/M4/M8/M16/M32/M64/M128、M1/M2 down-projection split-K probe、自定义双 beta GPU writer、固定地址 page pool、hot/cold cache、K0 oracle、两阶段 K1 GQA、普通 decode 与页边界 pack 双 CUDA Graph、ragged M1/M2/M4 Graph pool、非连续逻辑槽位映射、执行策略 fail-closed、ragged 单页写满与 GPU pack 融合、单边界及通用多页 segmented prefill、异常回滚与 fail-closed 回收、连续多页转换、Llama BHTD adapter、Hugging Face Cache/AttentionInterface、跨页 prefill、在线请求超时/取消/背压、HTTP/JSON/NDJSON 服务、fresh-process 性能复现、受控容量扫描、Nsight/PyTorch CUDA 归因、服务端 TTFT 阶段分解、admission-policy A/B、mixed-workload 与 HTTP 输入/输出身份哈希、split-K 逐 token logit margin 诊断、逐层敏感度 sweep、多模块 fallback、确定性 token-ID 反例筛选、raw-FP32、partial-reduction、FP64 oracle、teacher-forced decode 与非劣性门禁、服务默认策略、显式回滚及发布证据验证、标准 `model.generate()`，以及 packed-weight runtime、continuous batching、质量评测、性能汇总协议、SASS 指令审计和发布审计。2026-11-05 在 WSL/CUDA 正式环境运行 `python -m pytest -q`，434 项及 64 个 subtests 全部通过。隔离发布树完成 wheel、sdist→wheel、独立安装和七个命令入口验证，结果为 432 passed、2 skipped、62 subtests passed；两个 skip 均因干净副本不携带本机 CUTLASS CuTe headers，不是测试失败或文件遗漏。仓库审计覆盖 608 个可发布文件，结果为 0 finding。QuaRot 适配补丁另有 6 项 Hadamard/GQA 测试。
+
+M1 `8192→2048` down-projection 的 split-8 CUDA 路径已完成 10 对交错 fresh-process 服务 A/B：吞吐均值 +0.77%，TTFT/TPOT/E2E P95 均值分别改善 12.48%/5.50%/15.19%。端到端 HTTP 诊断证明 off/on 自回归 token 不保证一致，因此该路径不声称逐 token 等价；随后完成的 2,048-context、65,536-token production NQKV Graph teacher-forced 正式评测得到相对 PPL `-0.0932%`、context-bootstrap 95% CI `[-0.5664%,+0.3658%]`，通过预声明的 1% 非劣性门槛，确定性重放最大 logit 误差为 0。基于“质量非劣性 + 服务性能 + 可回滚”契约，在线服务现默认启用该精确形状；可用 `--disable-m1-down-splitk` 一键回滚到 unsplit。该结论不是自由生成序列等价、完整语义评测或跨模型保证。
+
+16 层逐层 Graph sweep 进一步把该固定 prompt 的翻转定位到 `model.layers.10.mlp.down_proj`：该层单独启用即得到 `482,220`，而仅回退该层、其余 15 层启用时三 token 恢复为 `482,15704,13`。但混合路径 logits 仍有最大 1.625 的差异，因此这只是敏感层定位，不是通用输出等价证明；其“暂不默认启用”的阶段性结论后来由 2,048-context 正式非劣性门取代。
+
+后续 8-prompt、每个 3-token 的 NQKV4 Graph 筛选进一步证明敏感层依赖输入：全 16 层 split-K 只有 3/8 token 序列与 baseline 一致，只回退第 10 层为 5/8；对失败 prompt 逐层定位后，回退 `{1,10,11,14}`、其余 12 层 split-K 在该筛选集达到 8/8。该结果只作为显式实验 fallback 的开发门槛，不作为默认启用或通用输出等价证据。
+
+逐模块 fallback 已接入模型转换、HTTP 服务与 fresh-process benchmark；四层回退的 HTTP smoke 完成 8/8 请求、0 失败，所有请求均生成 `482,15704,13`。该单轮 smoke 只证明集成接线和固定输入正确，不作为性能 A/B 或默认启用依据。
+
+固定 seed 的 12 个合成 token-ID 输入随后给出了反例：全层 split-K 为 6/12 token 序列一致，四层 fallback 为 8/12；其中一个长度 2 输入在全层 split-K 下与 baseline 一致，回退 `{1,10,11,14}` 后反而翻转。由此否决静态层黑名单作为通用正确性方案——各层数值扰动会抵消或叠加，回退更多层并不单调更安全。当前服务不使用静态层黑名单，而是依据正式平均质量契约启用完整已验证形状。
+
+Route-A 数值归因随后证明：split-2/4/8 相对 unsplit 的 raw-FP32 最大误差均约为 `3e-6`，改变最终 reducer 或在 partition 内采用 Kahan 补偿都不能恢复旧舍入轨迹；但以真实 BF16 解码值的 FP64 点积为 oracle 时，普通 split-8 的平均绝对误差由 unsplit 的 `2.414e-6` 降至 `2.155e-6`。因此“不逐位等于旧 kernel”不能直接判定为算术错误，问题转化为性能优化的模型质量契约。
+
+为真实覆盖 `M=1` 而不是只跑不会触发 split-K 的长序列 prefill，项目新增 WikiText-2 teacher-forced NQKV Graph 协议：baseline/candidate 使用完全相同的后续 token，按上下文做 AB/BA 交替和 ABA/BAB 重放，并以完整上下文为 bootstrap 单位。首轮 32×32 预筛的置信区间不足；随后 2,048-context 正式长跑覆盖 65,536 个配对 decode 决策，相对 PPL 为 `-0.0932%`，20,000 次 context-bootstrap 95% CI 为 `[-0.5664%,+0.3658%]`，上界低于预声明的 `+1%` margin，质量门状态为 `passed`。argmax agreement 为 `77.774%`，所以该结果支持平均概率质量非劣性，不支持自由生成 token 完全一致。
+
+随后完成 prompt 4～32、output 2～8 的 mixed-length engine A/B：4 对 token throughput 全部改善，配对中位 +0.62%；TPOT P95 3/4 改善，中位 -9.17%；目标 decode-only step 均值 4/4 改善，中位 -15.90%；E2E P95 只有 2/4 改善且中位 +1.90%。其中一个哈希版 engine 配对输入及生成 token SHA-256 一致，但该局部证据未能预测真实 HTTP 自回归输出等价性；最终默认策略以更强的端到端门槛为准，保持关闭。
 
 最新系统结果增加 packed/BF16 混合权重驻留：在 RTX 5070 上实测六个显存预算点，
 512 MiB 方案相对全 packed 将 TTFT/TPOT 中位数降低 42.4%/45.8%，同时相对全 BF16
@@ -213,7 +344,7 @@ nestquant/models/   校准、Hessian、模型量化与 QA 适配
 nestquant/evaluation/ A4、KV4、PPL 与结果汇总
 nestquant/experiments/ 可导入的实验入口
 scripts/            命令行实验、校准、审计和汇总工具
-tests/unit/         246 项主项目测试及 25 个参数化 subtests
+tests/unit/         387 项主项目测试及 61 个参数化 subtests
 docs/               算法、架构、协议、路线和证据边界
 results/            审核后的小型汇总；raw 大文件不进入 Git
 external_patches/   固定上游 commit 的 QuaRot 兼容补丁
@@ -244,6 +375,9 @@ external_patches/   固定上游 commit 的 QuaRot 兼容补丁
 - [固定上游 E8 边界语义、逐阶段数值对齐与旧 checkpoint 兼容](results/fixed_upstream_codec_alignment.md)
 - [NQRT v3 上游 E8 语义最佳 W4 checkpoint 与完整 PPL](results/llama32_1b_paper_hadamard_shared128_ldlq_nqrt3.md)
 - [NQRT v4 stateless dither、完整 W4 PPL 与 runtime 对照](results/llama32_1b_nqrt4_stateless_w4.md)
+- [真实 packed W4A4KV4 runtime 与 packed W4A4 完整 PPL](results/llama32_1b_packed_w4a4kv4_runtime.md)
+- [直接 packed W4A4 CUDA MMA M16 与完整 1B prefill](results/llama32_1b_w4a4_cuda_mma_m16.md)
+- [直接 packed W4A4 CUDA M1 GEMV 与完整 1B decode](results/llama32_1b_w4a4_cuda_gemv_m1.md)
 - [NQRT v3 上游 E8 语义 W4/W4KV4/W4A4/W4A4KV4 递进](results/llama32_1b_paper_hadamard_w4a4kv4_nqrt3_progression.md)
 - [NQMC inspector 使用与成本边界](docs/nqmc_inspection.md)
 - [Llama-3.2-1B NQRT v3 checkpoint 审计](results/llama32_1b_nqrt3_checkpoint_inspection.md)

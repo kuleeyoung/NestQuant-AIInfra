@@ -14,6 +14,7 @@ venv/
 /data/
 /cache/
 /artifacts/
+/tmp/
 .cache/
 
 # Local run products; retain small, reviewed summaries under results/.

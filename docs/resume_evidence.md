@@ -27,8 +27,11 @@
 - 在 steady 50 req/s、16×3 burst 和 Poisson 20 req/s 双峰三类 open-loop 合成负载上，将 `8/4` admission 与即时 `1/0` 各重复 3 次。`8/4` 的 token throughput 分别提高 42.1%/46.2%/16.2%，TTFT P95 分别降低 47.5%/51.0%/33.8%；18 次 run、864 个请求全部完成。该结果不含 tokenizer/网络，不能写成 HTTP QPS。
 - 对 `8/4` 策略完成 4/10/20/30/40/50 req/s 配对容量扫描，同一 repetition 的请求内容完全相同。30→50 offered req/s 时 token throughput 仅从 121.61 增至 129.10 token/s，而 TTFT P95 从 335.99 增至 746.94 ms，定位本配置约 25～30 req/s 的饱和拐点。该数字是有限 engine workload，不是生产稳定 QPS。
 - 实现 112 个 Llama projection 的 packed/BF16 混合驻留规划器，将共享变换投影组成 64 个原子组，并按预测节省延迟/增量显存进行确定性选择。在 RTX 5070 的六点全模型测试中，512 MiB 预算相对全 packed 将 TTFT/TPOT 中位数降低 42.4%/45.8%，同时相对全 BF16 resident 少 36.3% CUDA allocated memory；方案已通过 ragged CUDA Graph 正确性验证。该结果只证明已测六个方案的 Pareto 权衡，不代表全局最优。
+- 已实现真实 packed W4A4KV4 correctness-first 路径：112 个投影直接消费 NQRT4 权重与 NQA4 激活码流，16 层使用 NQKV v2 GPU page/K1 attention，并由标准 `model.generate()` 完成跨页生成。完整 WikiText-2 tiled packed W4A4 PPL 为 10.683118；该 PPL 使用 `use_cache=False`，不能把 KV4 计入质量结论。
+- 已实现显式 opt-in 的直接 packed W4A4 CUDA M16 BF16 Tensor Core kernel。完整 Llama-3.2-1B sequence-16 prefill 的 3 次独立试验中位延迟由 tiled Triton 的 178.93 ms 降至 117.17 ms，加速中位数 1.527×（1.518～1.544×）；每轮审计记录 1,232 次自定义内核命中和 448 次 M1 回退。112/112 个投影均通过独立比较，但多层 A4 重新量化放大累加顺序差异，最终 logits 相对 L2 差异为 0.20639，因此不宣称质量无损或 INT4 GEMM。
+- 已实现显式 opt-in 的直接 packed W4A4 CUDA M1 GEMV。112/112 个真实投影通过独立比较，四类投影微基准相对 tiled Triton 加速 1.230～3.936×；严格 M1-only 单因素实验保持 prefill 路径不变，把完整 1B decode TPOT 三轮中位数从 170.01 ms 降至 94.53 ms，加速 1.803×（1.790～1.815×），每轮记录 896 次 M1 命中且 decode fallback 为 0。该实现是 CUDA Core GEMV，不是 Tensor Core/INT4 GEMM；生成序列仍会因累加顺序和后续 A4 量化而分叉，因此不声明质量等价。
 
-上述 PPL、下游和 runtime 结果仅支持各自记录的量化范围、beta 配置与评测协议。NQMC 与 packed runtime 已分别提供真实低比特存储和权重常驻执行证据，但不等于完成 NestQuant 全文复现；不能据此声称等码率优越性、A/KV 低比特常驻、超过 BF16 resident 的端到端加速或生产服务吞吐。
+上述 PPL、下游和 runtime 结果仅支持各自记录的量化范围、beta 配置与评测协议。NQMC/NQA4/NQKV 与 packed runtime 已提供真实低比特存储和执行证据，但不等于完成 NestQuant 全文复现；不能据此声称等码率优越性、所有形状相对 BF16 resident 的端到端加速、质量无损或生产服务吞吐。
 
 ## 达到对应证据后才能写
 
@@ -44,6 +47,9 @@
 | “服务负载下 admission 优化” | **已具备**：三类 open-loop workload、两策略、三重复、P50/P95/P99 与机器验收；不得写成 HTTP QPS 或生产 SLA |
 | “定位服务容量拐点” | **已具备**：4～50 req/s 配对单因素扫描，吞吐平台与尾延迟/队列共同证据；必须限定模型、GPU、长度分布和有限请求数 |
 | “混合驻留显存—延迟 Pareto” | **已具备**：六个全模型预算点、20 次重复、独立 validator、四类 SHA-256 和 Graph 正确性；必须说明选择器是贪心启发式、Pareto 仅限已测候选集合 |
+| “真实 packed W4A4KV4 原型” | **已具备**：112 个 W4/A4 投影、16 层 NQKV、标准生成 smoke 和完整 packed W4A4 PPL；必须区分 `use_cache=False` PPL 与 KV4 生成证据 |
+| “CUDA M16 prefill 加速中位数 1.527×” | **已具备**：完整 1B、3 次独立试验×7 次稳态测量、运行时 dispatch 计数和 112 投影审计；必须说明 BF16 MMA、M1 回退、显式 opt-in 和质量不等价 |
+| “CUDA M1 decode TPOT 加速中位数 1.803×” | **已具备**：完整 1B、严格 M1-only 单因素协议、3 次独立进程×7 次稳态测量、896 次/轮 dispatch 计数和 112 投影审计；必须说明 CUDA Core GEMV、显式 opt-in 和生成分叉 |
 | “服务部署能力” | 仍需可调用的网络入口、请求协议、错误处理、取消/超时和外部资源监控证据 |
 
 任何数值都必须可追溯到配置、运行命令、日志和版本。结果不理想也保留，可作为取舍分析；不得用论文表格数字冒充本地结果。

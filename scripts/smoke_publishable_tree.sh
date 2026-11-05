@@ -16,7 +16,7 @@ git -c core.quotepath=false ls-files --cached --others --exclude-standard -z \
 
 cd "$clean_dir"
 "$python_bin" -m pip wheel --no-deps --wheel-dir "$wheel_dir" .
-"$python_bin" -m pytest -q
+"$python_bin" -m pytest -q -rs
 "$python_bin" - "$sdist_dir" <<'PY'
 import sys
 import setuptools.build_meta
@@ -44,7 +44,7 @@ if missing:
     raise SystemExit(f"wheel is missing runtime sources: {sorted(missing)}")
 PY
 "$python_bin" -m pip install --no-deps --target "$install_dir" "$wheel_path"
-for command in nestquant-audit-repository nestquant-validate-service-benchmark nestquant-promote-service-benchmark nestquant-verify-service-evidence nestquant-validate-hybrid-pareto nestquant-promote-hybrid-pareto; do
+for command in nestquant-audit-repository nestquant-validate-service-benchmark nestquant-promote-service-benchmark nestquant-verify-service-evidence nestquant-verify-splitk-quality nestquant-validate-hybrid-pareto nestquant-promote-hybrid-pareto; do
   if [[ ! -x "$install_dir/bin/$command" ]]; then
     echo "installed wheel is missing console entry point: $command" >&2
     exit 1

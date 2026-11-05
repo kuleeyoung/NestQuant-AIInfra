@@ -14,4 +14,3 @@ The incomplete batch is retained under `results/raw/m1_splitk_mixed_ab_v1/` as
 diagnostic evidence and is excluded from the promotion result. The replacement
 low-load paired experiment is reported in
 `results/w4a4_m1_down_splitk_mixed_ab_v1.md`.
-

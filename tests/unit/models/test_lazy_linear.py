@@ -14,6 +14,7 @@ from nestquant.core.codec import generate_e8_dither_stateless
 from nestquant.core.rotation import hadamard
 from nestquant.core.tensor_checkpoint import PackedNestQuantTensor
 from nestquant.models.lazy_linear import LazyNQMCLinear, LazyNQMCWeightCache
+from nestquant.runtime.triton_unpack import _TRITON_INSTALLED
 
 
 class TestLazyNQMCLinear(unittest.TestCase):
@@ -195,7 +196,10 @@ class TestLazyNQMCLinear(unittest.TestCase):
                 self.reader, "proj.weight", synchronize_profile=True
             )
 
-    @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
+    @unittest.skipUnless(
+        torch.cuda.is_available() and _TRITON_INSTALLED,
+        "requires CUDA and Triton",
+    )
     def test_tiled_backend_matches_reference_linear(self):
         weight = torch.randn(7, 24, generator=torch.Generator().manual_seed(47))
         seed = 20261025
