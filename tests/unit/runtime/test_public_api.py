@@ -18,6 +18,7 @@ class TestRuntimePublicAPI(unittest.TestCase):
             "DecodeRequest",
             "RequestStatus",
             "ContinuousBatchInferenceEngine",
+            "BatchedNQKVLlamaRunner",
             "EngineStep",
             "GreedyHostSampler",
             "AdmissionPolicy",

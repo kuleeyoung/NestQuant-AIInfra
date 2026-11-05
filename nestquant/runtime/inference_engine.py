@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Protocol
 
 import torch
@@ -37,6 +38,8 @@ class EngineStep:
     generated_tokens: dict[str, int]
     finished_request_ids: tuple[str, ...]
     active_request_ids: tuple[str | None, ...]
+    prefill_seconds: float
+    decode_seconds: float
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,23 @@ class ContinuousBatchInferenceEngine:
         if len(request.prompt_token_ids) + request.max_new_tokens > self.max_cache_len:
             raise ValueError("prompt plus max_new_tokens exceeds the KV cache")
         self.scheduler.submit(request)
+
+    def _clear_released_slots(self) -> tuple[int, ...]:
+        """Release backend state for scheduler slots that became terminal."""
+        released = self.scheduler.consume_released_slots()
+        if released:
+            clear_mask = torch.zeros(
+                self.capacity, dtype=torch.bool, device=self.device
+            )
+            clear_mask[list(released)] = True
+            self.backend.clear_slots(clear_mask)
+        return released
+
+    def cancel(self, request_id: str) -> DecodeRequest:
+        """Cancel a waiting/running request and immediately release its KV slot."""
+        request = self.scheduler.cancel(request_id)
+        self._clear_released_slots()
+        return request
 
     @torch.inference_mode()
     def initialize(self) -> None:
@@ -226,19 +246,23 @@ class ContinuousBatchInferenceEngine:
     def step(self) -> EngineStep:
         if not self._initialized:
             self.initialize()
-        released = self.scheduler.consume_released_slots()
-        if released:
-            clear_mask = torch.zeros(self.capacity, dtype=torch.bool, device=self.device)
-            clear_mask[list(released)] = True
-            self.backend.clear_slots(clear_mask)
+        self._clear_released_slots()
 
         existing_ids = {request.request_id for request in self.scheduler.running}
         admission_limit = self._admission_limit()
         admitted = self.scheduler.admit(limit=admission_limit)
+        prefill_started = time.perf_counter()
         prefill_generated, prefill_finished = self._prefill_admitted(admitted)
+        prefill_seconds = time.perf_counter() - prefill_started
+        decode_started = time.perf_counter()
         decode_generated, decode_finished = self._decode_existing(existing_ids)
+        decode_seconds = time.perf_counter() - decode_started
         generated = {**decode_generated, **prefill_generated}
         finished = decode_finished + prefill_finished
+        # A workload may become empty in this step, so waiting until the next
+        # step would strand backend-owned KV pages forever. The model forward
+        # has completed at this point and terminal slots are safe to release.
+        self._clear_released_slots()
         active_ids = tuple(
             None if request is None else request.request_id
             for request in self.scheduler.slots
@@ -248,6 +272,8 @@ class ContinuousBatchInferenceEngine:
             generated_tokens=generated,
             finished_request_ids=finished,
             active_request_ids=active_ids,
+            prefill_seconds=prefill_seconds,
+            decode_seconds=decode_seconds,
         )
         self._step_index += 1
         return result

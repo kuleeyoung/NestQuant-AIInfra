@@ -91,6 +91,16 @@ def test_engine_clears_finished_slot_before_reuse() -> None:
     assert backend.clear_calls[-1].tolist() == [True]
 
 
+def test_engine_clears_terminal_backend_state_without_an_extra_step() -> None:
+    backend = FakeBackend(batch_size=1)
+    engine = ContinuousBatchInferenceEngine(backend)
+    engine.submit(DecodeRequest("only", (1, 2), 1))
+    result = engine.step()
+    assert result.finished_request_ids == ("only",)
+    assert not engine.has_work()
+    assert backend.clear_calls[-1].tolist() == [True]
+
+
 def test_engine_rejects_request_larger_than_cache() -> None:
     engine = ContinuousBatchInferenceEngine(FakeBackend(max_cache_len=4))
     try:

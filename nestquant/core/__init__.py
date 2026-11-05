@@ -13,6 +13,7 @@ from .quantizer import (
     quantize_rows_ldlq,
 )
 from .packing import PackedNestQuantIndices, pack_nestquant_indices
+from .kv_format import PackedNQKVPage
 from .tensor_checkpoint import PackedNestQuantTensor
 from .model_checkpoint import PackedNestQuantModel
 from .model_checkpoint_file import NQMCEntry, NQMCFileReader
@@ -32,7 +33,7 @@ __all__ = [
     "generate_e8_dither", "generate_e8_dither_stateless", "BetaSearchResult", "build_candidate_tables",
     "select_beta_subset", "QuantizedBlocks", "QuantizedRows", "quantize_e8_blocks",
     "quantize_rows", "quantize_rows_ldlq",
-    "PackedNestQuantIndices", "pack_nestquant_indices", "PackedNestQuantTensor",
+    "PackedNestQuantIndices", "pack_nestquant_indices", "PackedNQKVPage", "PackedNestQuantTensor",
     "PackedNestQuantModel", "NQMCEntry", "NQMCFileReader",
     "ActivationCovarianceAccumulator", "regularize_hessian", "unit_lower_ldl",
     "block_unit_lower_ldl", "ldlq_quantize_columns", "ldlq_quantize_blocks",
