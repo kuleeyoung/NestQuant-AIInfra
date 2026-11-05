@@ -18,6 +18,7 @@ nestquant-audit-repository = "nestquant.cli.audit_repository:main"
 nestquant-validate-service-benchmark = "nestquant.cli.validate_service_benchmark:main"
 nestquant-promote-service-benchmark = "nestquant.cli.promote_service_benchmark:main"
 nestquant-verify-service-evidence = "nestquant.cli.verify_service_evidence:main"
+nestquant-verify-splitk-quality = "nestquant.cli.verify_splitk_quality_evidence:main"
 nestquant-validate-hybrid-pareto = "nestquant.cli.validate_hybrid_pareto:main"
 nestquant-promote-hybrid-pareto = "nestquant.cli.promote_hybrid_pareto:main"
 
@@ -31,3 +32,7 @@ include = ["nestquant*"]
 
 [tool.setuptools.package-data]
 "nestquant.runtime" = ["*.cu", "*.cuh", "*.cpp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tmp", "build", ".git"]

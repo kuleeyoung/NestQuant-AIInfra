@@ -176,6 +176,11 @@ if _TRITON_INSTALLED:
         tl.store(output + blocks * 8 + coordinates, dither, mask=mask)
 else:
     triton = None
+    # Other optional Triton modules import this helper while defining kernels.
+    # Keep the symbol importable when Triton is absent so CUDA-only runtime
+    # paths can still import the package; those modules guard every use with
+    # _TRITON_INSTALLED and expose an explicit runtime error if called.
+    _nearest_e8_upstream = None
     _nqrt_v4_tiled_decode_kernel = None
     _stateless_dither_kernel = None
 

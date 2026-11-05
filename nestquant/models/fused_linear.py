@@ -23,6 +23,26 @@ from ..runtime.triton_dot_linear import (
 )
 from ..runtime.triton_grouped_linear import linear_fused_qkv_triton
 from ..runtime.cuda_mma_linear import can_use_mma_j2, linear_fused_mma_j2
+from ..runtime.cuda_w4a4_mma import (
+    can_use_w4a4_mma_small_m,
+    can_use_w4a4_mma_large_m_staged,
+    can_use_w4a4_mma_chunked_staged,
+    can_use_w4a4_gemv_m1,
+    can_use_w4a4_mma_m16,
+    linear_packed_w4a4_gemv_m1,
+    linear_packed_w4a4_gemv_m1_splitk_probe,
+    linear_packed_w4a4_mma_small_m,
+    linear_packed_w4a4_mma_large_m_staged,
+    linear_packed_w4a4_mma_chunked_staged,
+    linear_packed_w4a4_mma_m16,
+)
+from ..runtime.triton_w4a4_linear import (
+    PreparedNQA4Activation,
+    linear_packed_w4a4_tiled_triton,
+    linear_packed_w4a4_triton,
+    quantize_activation_cuda,
+    select_w4a4_tiled_config,
+)
 from .rotated_linear import PAPER_HADAMARD_FORMAT, HadamardRotatedLinear
 
 
@@ -64,6 +84,49 @@ class SharedHadamardCache:
         self._remaining_uses = 0
 
 
+class SharedPackedActivationCache:
+    """Reuse one packed A4 encoding for projections sharing an input tensor."""
+
+    def __init__(self, uses_per_input: int) -> None:
+        if isinstance(uses_per_input, bool) or not isinstance(uses_per_input, int):
+            raise TypeError("uses_per_input must be an integer")
+        if uses_per_input < 2:
+            raise ValueError("uses_per_input must be at least two")
+        self.uses_per_input = uses_per_input
+        self._input: torch.Tensor | None = None
+        self._packed: PreparedNQA4Activation | None = None
+        self._remaining_uses = 0
+        self.hits = 0
+        self.misses = 0
+
+    def encode(
+        self, inputs: torch.Tensor, *, q: int, betas: tuple[float, ...],
+        beta_table: torch.Tensor | None = None,
+    ) -> tuple[PreparedNQA4Activation, bool]:
+        if torch.is_grad_enabled():
+            raise RuntimeError("shared A4 caching requires inference or no-grad mode")
+        if self._input is inputs and self._packed is not None:
+            self.hits += 1
+            packed = self._packed
+            self._remaining_uses -= 1
+            if self._remaining_uses == 0:
+                self.clear()
+            return packed, False
+        packed = quantize_activation_cuda(
+            inputs, q=q, betas=betas, beta_table=beta_table
+        )
+        self._input = inputs
+        self._packed = packed
+        self._remaining_uses = self.uses_per_input - 1
+        self.misses += 1
+        return packed, True
+
+    def clear(self) -> None:
+        self._input = None
+        self._packed = None
+        self._remaining_uses = 0
+
+
 class FusedNQRTLinear(nn.Module):
     """Apply one packed NQRT v4 weight without materializing a BF16 matrix.
 
@@ -82,6 +145,11 @@ class FusedNQRTLinear(nn.Module):
         input_transform_cache: SharedHadamardCache | None = None,
         output_dtype: torch.dtype | None = None,
         compute_backend: str = "tensor_core_dot",
+        activation_q: int = 14,
+        activation_betas: tuple[float, ...] | None = None,
+        packed_activation_cache: SharedPackedActivationCache | None = None,
+        force_w4a4_tiled_fallback: bool = False,
+        enable_m1_down_splitk: bool = False,
     ) -> None:
         super().__init__()
         if not isinstance(reader, NQMCFileReader):
@@ -109,10 +177,20 @@ class FusedNQRTLinear(nn.Module):
             torch.float16, torch.bfloat16, torch.float32,
         }:
             raise ValueError("output_dtype must be float16, bfloat16, float32, or None")
-        if compute_backend not in {"tensor_core_dot", "scalar", "cuda_mma_j2"}:
+        if compute_backend not in {
+            "tensor_core_dot", "scalar", "cuda_mma_j2",
+            "packed_w4a4", "packed_w4a4_tiled", "packed_w4a4_cuda_mma",
+            "packed_w4a4_cuda_gemv_m1",
+        }:
             raise ValueError(
-                "compute_backend must be 'tensor_core_dot', 'scalar', or 'cuda_mma_j2'"
+                "unsupported fused NQRT compute_backend"
             )
+        if compute_backend.startswith("packed_w4a4") and not activation_betas:
+            raise ValueError("packed_w4a4 requires activation_betas")
+        if packed_activation_cache is not None and not compute_backend.startswith("packed_w4a4"):
+            raise ValueError("packed_activation_cache requires packed_w4a4")
+        if not isinstance(enable_m1_down_splitk, bool):
+            raise TypeError("enable_m1_down_splitk must be a bool")
 
         self.reader = reader
         self.weight_name = weight_name
@@ -120,6 +198,34 @@ class FusedNQRTLinear(nn.Module):
         self.input_transform_cache = input_transform_cache
         self.output_dtype = output_dtype
         self.compute_backend = compute_backend
+        self.activation_q = activation_q
+        self.activation_betas = (
+            None if activation_betas is None
+            else tuple(float(value) for value in activation_betas)
+        )
+        self.packed_activation_cache = packed_activation_cache
+        self.force_w4a4_tiled_fallback = bool(force_w4a4_tiled_fallback)
+        self.enable_m1_down_splitk = enable_m1_down_splitk
+        self.a4_call_count = 0
+        self.a4_encode_count = 0
+        self.a4_packed_input_bytes = 0
+        self.a4_encoded_input_bytes = 0
+        self.a4_max_resident_bytes = 0
+        self.w4a4_cuda_mma_dispatch_count = 0
+        self.w4a4_cuda_mma_m1_dispatch_count = 0
+        self.w4a4_cuda_mma_m1_splitk_dispatch_count = 0
+        self.w4a4_cuda_mma_m16_dispatch_count = 0
+        self.w4a4_cuda_mma_small_m_dispatch_count = 0
+        self.w4a4_cuda_mma_m128_staged_dispatch_count = 0
+        self.w4a4_cuda_mma_large_m_staged_dispatch_count = 0
+        self.w4a4_cuda_mma_chunked_staged_dispatch_count = 0
+        self.w4a4_tiled_fallback_count = 0
+        self.register_buffer(
+            "activation_beta_table",
+            None if self.activation_betas is None else torch.tensor(
+                self.activation_betas, dtype=torch.float32
+            ),
+        )
         self.register_buffer("bias", None if bias is None else bias.detach().clone())
         self._prepared: PreparedNQRTLinear | None = None
 
@@ -152,6 +258,8 @@ class FusedNQRTLinear(nn.Module):
         self.clear_prepared()
         if self.input_transform_cache is not None:
             self.input_transform_cache.clear()
+        if self.packed_activation_cache is not None:
+            self.packed_activation_cache.clear()
         return super()._apply(fn, recurse=recurse)
 
     def _prepared_for(self, device: torch.device) -> PreparedNQRTLinear:
@@ -182,7 +290,122 @@ class FusedNQRTLinear(nn.Module):
             compute_inputs = hadamard(inputs) if self.input_hadamard else inputs
         bias = None if self.bias is None else self.bias.to(inputs.device)
         prepared = self._prepared_for(inputs.device)
-        if self.compute_backend == "cuda_mma_j2" and can_use_mma_j2(compute_inputs, prepared):
+        if self.compute_backend.startswith("packed_w4a4"):
+            if self.packed_activation_cache is None:
+                packed_activation = quantize_activation_cuda(
+                    compute_inputs, q=self.activation_q,
+                    betas=self.activation_betas,
+                    beta_table=self.activation_beta_table,
+                )
+                encoded = True
+            else:
+                packed_activation, encoded = self.packed_activation_cache.encode(
+                    compute_inputs, q=self.activation_q,
+                    betas=self.activation_betas,
+                    beta_table=self.activation_beta_table,
+                )
+            self.a4_call_count += 1
+            self.a4_encode_count += int(encoded)
+            self.a4_packed_input_bytes += packed_activation.resident_bytes
+            self.a4_encoded_input_bytes += (
+                packed_activation.resident_bytes if encoded else 0
+            )
+            self.a4_max_resident_bytes = max(
+                self.a4_max_resident_bytes, packed_activation.resident_bytes
+            )
+            if (
+                self.compute_backend == "packed_w4a4_cuda_mma"
+                and not self.force_w4a4_tiled_fallback
+                and bias is None
+                and can_use_w4a4_mma_large_m_staged(packed_activation, prepared)
+            ):
+                self.w4a4_cuda_mma_dispatch_count += 1
+                self.w4a4_cuda_mma_large_m_staged_dispatch_count += 1
+                self.w4a4_cuda_mma_m128_staged_dispatch_count += int(
+                    packed_activation.token_count == 128
+                )
+                outputs = linear_packed_w4a4_mma_large_m_staged(
+                    packed_activation, prepared
+                )
+            elif (
+                self.compute_backend == "packed_w4a4_cuda_mma"
+                and not self.force_w4a4_tiled_fallback
+                and bias is None
+                and can_use_w4a4_mma_m16(packed_activation, prepared)
+            ):
+                self.w4a4_cuda_mma_dispatch_count += 1
+                self.w4a4_cuda_mma_m16_dispatch_count += 1
+                outputs = linear_packed_w4a4_mma_m16(
+                    packed_activation, prepared
+                )
+            elif (
+                self.compute_backend == "packed_w4a4_cuda_mma"
+                and not self.force_w4a4_tiled_fallback
+                and bias is None
+                and can_use_w4a4_mma_small_m(packed_activation, prepared)
+            ):
+                self.w4a4_cuda_mma_dispatch_count += 1
+                self.w4a4_cuda_mma_small_m_dispatch_count += 1
+                outputs = linear_packed_w4a4_mma_small_m(
+                    packed_activation, prepared
+                )
+            elif (
+                self.compute_backend in {
+                    "packed_w4a4_cuda_mma", "packed_w4a4_cuda_gemv_m1",
+                }
+                and not self.force_w4a4_tiled_fallback
+                and bias is None
+                and can_use_w4a4_gemv_m1(packed_activation, prepared)
+            ):
+                self.w4a4_cuda_mma_dispatch_count += 1
+                self.w4a4_cuda_mma_m1_dispatch_count += 1
+                if (
+                    self.enable_m1_down_splitk
+                    and packed_activation.feature_count == 8192
+                    and self.out_features == 2048
+                ):
+                    self.w4a4_cuda_mma_m1_splitk_dispatch_count += 1
+                    outputs = linear_packed_w4a4_gemv_m1_splitk_probe(
+                        packed_activation, prepared, split_k=8
+                    )
+                else:
+                    outputs = linear_packed_w4a4_gemv_m1(
+                        packed_activation, prepared
+                    )
+            elif (
+                self.compute_backend == "packed_w4a4_cuda_mma"
+                and not self.force_w4a4_tiled_fallback
+                and bias is None
+                and can_use_w4a4_mma_chunked_staged(
+                    packed_activation, prepared
+                )
+            ):
+                self.w4a4_cuda_mma_dispatch_count += 1
+                self.w4a4_cuda_mma_chunked_staged_dispatch_count += 1
+                outputs = linear_packed_w4a4_mma_chunked_staged(
+                    packed_activation, prepared
+                )
+            elif self.compute_backend in {
+                "packed_w4a4_tiled", "packed_w4a4_cuda_mma",
+                "packed_w4a4_cuda_gemv_m1",
+            }:
+                if self.compute_backend in {
+                    "packed_w4a4_cuda_mma", "packed_w4a4_cuda_gemv_m1",
+                }:
+                    self.w4a4_tiled_fallback_count += 1
+                outputs = linear_packed_w4a4_tiled_triton(
+                    packed_activation, prepared, bias,
+                    **select_w4a4_tiled_config(
+                        packed_activation.token_count,
+                        self.out_features,
+                        self.in_features,
+                    ),
+                )
+            else:
+                outputs = linear_packed_w4a4_triton(
+                    packed_activation, prepared, bias
+                )
+        elif self.compute_backend == "cuda_mma_j2" and can_use_mma_j2(compute_inputs, prepared):
             outputs = linear_fused_mma_j2(compute_inputs, prepared, bias)
         elif self.compute_backend in {"tensor_core_dot", "cuda_mma_j2"}:
             token_count = math.prod(compute_inputs.shape[:-1])
@@ -313,6 +536,8 @@ class FusedNQRTConversionReport:
     input_hadamard_names: tuple[str, ...]
     shared_hadamard_groups: tuple[tuple[str, ...], ...]
     grouped_qkv_groups: tuple[tuple[str, str, str], ...]
+    w4a4_tiled_fallback_names: tuple[str, ...] = ()
+    m1_down_splitk_fallback_names: tuple[str, ...] = ()
 
 
 def convert_linears_to_fused_nqrt_(
@@ -323,6 +548,11 @@ def convert_linears_to_fused_nqrt_(
     output_dtype: torch.dtype | None = None,
     group_qkv: bool = False,
     compute_backend: str = "tensor_core_dot",
+    activation_q: int = 14,
+    activation_betas: tuple[float, ...] | None = None,
+    w4a4_tiled_fallback_names: Collection[str] = (),
+    enable_m1_down_splitk: bool = False,
+    m1_down_splitk_fallback_names: Collection[str] = (),
 ) -> FusedNQRTConversionReport:
     """Transactionally replace selected model Linears with fused NQRT modules.
 
@@ -342,10 +572,36 @@ def convert_linears_to_fused_nqrt_(
         raise ValueError("include_names must be unique")
     if not isinstance(group_qkv, bool):
         raise TypeError("group_qkv must be a bool")
-    if compute_backend not in {"tensor_core_dot", "scalar", "cuda_mma_j2"}:
+    if not isinstance(enable_m1_down_splitk, bool):
+        raise TypeError("enable_m1_down_splitk must be a bool")
+    if isinstance(m1_down_splitk_fallback_names, (str, bytes)):
+        raise TypeError("m1_down_splitk_fallback_names must be a collection of names")
+    splitk_fallback_names = frozenset(m1_down_splitk_fallback_names)
+    if any(not isinstance(name, str) or not name for name in splitk_fallback_names):
+        raise ValueError("m1_down_splitk_fallback_names must contain nonempty names")
+    if isinstance(w4a4_tiled_fallback_names, (str, bytes)):
+        raise TypeError("w4a4_tiled_fallback_names must be a collection of names")
+    fallback_names = frozenset(w4a4_tiled_fallback_names)
+    if any(not isinstance(name, str) or not name for name in fallback_names):
+        raise ValueError("w4a4_tiled_fallback_names must contain nonempty names")
+    if not fallback_names <= set(requested):
+        raise ValueError("w4a4_tiled_fallback_names must be included in include_names")
+    if not splitk_fallback_names <= set(requested):
+        raise ValueError("m1_down_splitk_fallback_names must be included in include_names")
+    if splitk_fallback_names and not enable_m1_down_splitk:
         raise ValueError(
-            "compute_backend must be 'tensor_core_dot', 'scalar', or 'cuda_mma_j2'"
+            "m1_down_splitk_fallback_names requires enable_m1_down_splitk=True"
         )
+    if compute_backend not in {
+        "tensor_core_dot", "scalar", "cuda_mma_j2",
+        "packed_w4a4", "packed_w4a4_tiled", "packed_w4a4_cuda_mma",
+        "packed_w4a4_cuda_gemv_m1",
+    }:
+        raise ValueError(
+            "unsupported fused NQRT compute_backend"
+        )
+    if compute_backend.startswith("packed_w4a4") and not activation_betas:
+        raise ValueError("packed_w4a4 requires activation_betas")
 
     modules = dict(model.named_modules())
     hadamard_names = _hadamard_names(reader.model_metadata)
@@ -353,12 +609,22 @@ def convert_linears_to_fused_nqrt_(
     shared_groups = _shared_hadamard_groups(requested_set & hadamard_names)
     grouped_qkv_groups = _complete_qkv_groups(requested_set & hadamard_names) if group_qkv else ()
     grouped_names = {name for group in grouped_qkv_groups for name in group}
+    if fallback_names & grouped_names:
+        raise ValueError(
+            "w4a4_tiled_fallback_names cannot use grouped QKV replacement"
+        )
     caches = {
         name: cache
         for group in shared_groups
         for cache in (SharedHadamardCache(len(group)),)
         for name in group
     }
+    packed_caches = {
+        name: cache
+        for group in shared_groups
+        for cache in (SharedPackedActivationCache(len(group)),)
+        for name in group
+    } if compute_backend.startswith("packed_w4a4") else {}
     staged = []
     for name in requested:
         module = modules.get(name)
@@ -405,7 +671,15 @@ def convert_linears_to_fused_nqrt_(
                 if output_dtype is None else output_dtype
             ),
             compute_backend=compute_backend,
+            activation_q=activation_q,
+            activation_betas=activation_betas,
+            packed_activation_cache=packed_caches.get(name),
+            force_w4a4_tiled_fallback=name in fallback_names,
+            enable_m1_down_splitk=(
+                enable_m1_down_splitk and name not in splitk_fallback_names
+            ),
         )
+        fused.to(device=module.weight.device)
         fused.train(module.training)
         parent_name, _, child_name = name.rpartition(".")
         parent = model if not parent_name else modules[parent_name]
@@ -416,6 +690,8 @@ def convert_linears_to_fused_nqrt_(
         input_hadamard_names=tuple(sorted(requested_set & hadamard_names)),
         shared_hadamard_groups=shared_groups,
         grouped_qkv_groups=grouped_qkv_groups,
+        w4a4_tiled_fallback_names=tuple(sorted(fallback_names)),
+        m1_down_splitk_fallback_names=tuple(sorted(splitk_fallback_names)),
     )
 
 

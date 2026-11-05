@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "seed": 20261103,
+  "capacity": 4,
+  "max_cache_len": 64,
+  "warmup_requests": 4,
+  "warmup_all_prompt_lengths": false,
+  "warmup_prompt_lengths": [8, 15, 24, 32],
+  "repetitions": 1,
+  "couple_profile_seeds": true,
+  "policies": [
+    {
+      "name": "full_graph_2_2",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 2,
+      "nqkv_ragged_subpage_enabled": true,
+      "nqkv_ragged_full_page_pack_enabled": true,
+      "nqkv_ragged_cross_page_enabled": true,
+      "nqkv_ragged_multi_page_enabled": true,
+      "nqkv_multi_page_batched_pack_enabled": true
+    }
+  ],
+  "profiles": [
+    {
+      "name": "poisson_1rps_bimodal",
+      "request_count": 16,
+      "arrival_mode": "poisson",
+      "mean_arrival_interval_ms": 1000,
+      "length_mode": "bimodal",
+      "long_fraction": 0.35,
+      "short": {
+        "prompt_length": [4, 15],
+        "output_length": [2, 4]
+      },
+      "long": {
+        "prompt_length": [16, 32],
+        "output_length": [5, 8]
+      },
+      "max_cache_len": 64
+    }
+  ],
+  "claim_boundary": "Paired-seed single-GPU low-load engine benchmark with deterministic synthetic token IDs and mixed prompt/output lengths. It excludes tokenizer and network I/O and is not a production SLA."
+}

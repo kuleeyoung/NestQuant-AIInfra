@@ -18,6 +18,7 @@ from nestquant.models.fused_linear import (
     FusedNQRTLinear,
     GroupedQKVCoordinator,
     SharedHadamardCache,
+    SharedPackedActivationCache,
     convert_linears_to_fused_nqrt_,
 )
 from nestquant.models.rotated_linear import PAPER_HADAMARD_FORMAT
@@ -85,6 +86,33 @@ class TestFusedNQRTLinear(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "compute_backend"):
                 FusedNQRTLinear(reader, "first.weight", compute_backend="unknown")
 
+    def test_splitk_fallback_is_explicit_and_reported(self):
+        model = TinyProjectionPair().eval()
+        with tempfile.TemporaryDirectory() as directory:
+            reader, _ = self._checkpoint(model, directory)
+            report = convert_linears_to_fused_nqrt_(
+                model,
+                reader,
+                ["first"],
+                enable_m1_down_splitk=True,
+                m1_down_splitk_fallback_names=("first",),
+            )
+
+            self.assertFalse(model.first.enable_m1_down_splitk)
+            self.assertEqual(report.m1_down_splitk_fallback_names, ("first",))
+
+    def test_splitk_fallback_requires_enabled_candidate(self):
+        model = TinyProjectionPair().eval()
+        with tempfile.TemporaryDirectory() as directory:
+            reader, _ = self._checkpoint(model, directory)
+            with self.assertRaisesRegex(ValueError, "requires enable"):
+                convert_linears_to_fused_nqrt_(
+                    model,
+                    reader,
+                    ["first"],
+                    m1_down_splitk_fallback_names=("first",),
+                )
+
     def test_shared_hadamard_cache_reuses_only_the_same_input_object(self):
         cache = SharedHadamardCache(2)
         inputs = torch.randn(2, 8)
@@ -100,6 +128,22 @@ class TestFusedNQRTLinear(unittest.TestCase):
         with torch.inference_mode():
             cache.transform(inputs)
         self.assertEqual(cache.misses, 3)
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and triton_available(),
+        "CUDA and Triton are required",
+    )
+    def test_shared_packed_activation_cache_encodes_once(self):
+        cache = SharedPackedActivationCache(2)
+        inputs = torch.randn(2, 32, device="cuda", dtype=torch.bfloat16)
+        betas = (0.25, 0.5, 0.75, 1.0)
+        with torch.inference_mode():
+            first, first_encoded = cache.encode(inputs, q=14, betas=betas)
+            second, second_encoded = cache.encode(inputs, q=14, betas=betas)
+        self.assertIs(first, second)
+        self.assertTrue(first_encoded)
+        self.assertFalse(second_encoded)
+        self.assertEqual((cache.misses, cache.hits), (1, 1))
 
     def test_grouped_qkv_coordinator_launches_once_and_clears_after_consumption(self):
         coordinator = GroupedQKVCoordinator(
@@ -170,6 +214,153 @@ class TestFusedNQRTLinear(unittest.TestCase):
             self.assertGreater(layer.packed_device_bytes, 0)
             layer.to(dtype=torch.float32)
             self.assertFalse(layer.prepared)
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and triton_available(),
+        "CUDA and Triton are required",
+    )
+    def test_packed_w4a4_backend_quantizes_activation_inside_linear(self):
+        model = TinyProjectionPair().eval()
+        with tempfile.TemporaryDirectory() as directory:
+            reader, _ = self._checkpoint(model, directory)
+            layer = FusedNQRTLinear(
+                reader,
+                "first.weight",
+                model.first.bias.detach().to("cuda", torch.bfloat16),
+                input_hadamard=True,
+                output_dtype=torch.bfloat16,
+                compute_backend="packed_w4a4",
+                activation_q=14,
+                activation_betas=(0.25, 0.5, 0.75, 1.0),
+            ).cuda()
+            inputs = torch.randn(2, 32, device="cuda", dtype=torch.bfloat16)
+            output = layer(inputs)
+            self.assertEqual(output.shape, (2, 16))
+            self.assertTrue(torch.isfinite(output).all())
+            self.assertEqual(layer.compute_backend, "packed_w4a4")
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and triton_available(),
+        "CUDA and Triton are required",
+    )
+    def test_packed_w4a4_cuda_mma_dispatch_and_shape_fallback(self):
+        model = TinyProjectionPair().eval()
+        betas = (0.25, 0.5, 0.75, 1.0)
+        with tempfile.TemporaryDirectory() as directory:
+            reader, _ = self._checkpoint(model, directory)
+            cuda_layer = FusedNQRTLinear(
+                reader, "first.weight", None, output_dtype=torch.bfloat16,
+                compute_backend="packed_w4a4_cuda_mma", activation_q=14,
+                activation_betas=betas,
+            ).cuda()
+            tiled_layer = FusedNQRTLinear(
+                reader, "first.weight", None, output_dtype=torch.bfloat16,
+                compute_backend="packed_w4a4_tiled", activation_q=14,
+                activation_betas=betas,
+            ).cuda()
+            m1_only_layer = FusedNQRTLinear(
+                reader, "first.weight", None, output_dtype=torch.bfloat16,
+                compute_backend="packed_w4a4_cuda_gemv_m1", activation_q=14,
+                activation_betas=betas,
+            ).cuda()
+            sensitive_layer = FusedNQRTLinear(
+                reader, "first.weight", None, output_dtype=torch.bfloat16,
+                compute_backend="packed_w4a4_cuda_mma", activation_q=14,
+                activation_betas=betas, force_w4a4_tiled_fallback=True,
+            ).cuda()
+            inputs = torch.randn(16, 32, device="cuda", dtype=torch.bfloat16)
+            actual = cuda_layer(inputs)
+            expected = tiled_layer(inputs)
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_dispatch_count, 1)
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_m16_dispatch_count, 1)
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_m1_dispatch_count, 0)
+            self.assertEqual(cuda_layer.w4a4_tiled_fallback_count, 0)
+            self.assertTrue(
+                torch.allclose(actual.float(), expected.float(), atol=0.02, rtol=0.01)
+            )
+            m1 = cuda_layer(inputs[:1])
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_dispatch_count, 2)
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_m1_dispatch_count, 1)
+            self.assertEqual(m1.shape, (1, 16))
+            self.assertTrue(torch.isfinite(m1).all())
+            fallback = cuda_layer(inputs[:2])
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_dispatch_count, 3)
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_small_m_dispatch_count, 1)
+            self.assertEqual(cuda_layer.w4a4_tiled_fallback_count, 0)
+            self.assertEqual(fallback.shape, (2, 16))
+            self.assertTrue(torch.isfinite(fallback).all())
+            sensitive = sensitive_layer(inputs[:2])
+            self.assertEqual(
+                sensitive_layer.w4a4_cuda_mma_small_m_dispatch_count, 0
+            )
+            self.assertEqual(sensitive_layer.w4a4_tiled_fallback_count, 1)
+            self.assertTrue(torch.allclose(
+                sensitive.float(), fallback.float(), atol=0.02, rtol=0.01
+            ))
+            m16_fallback = m1_only_layer(inputs)
+            self.assertEqual(m1_only_layer.w4a4_cuda_mma_m16_dispatch_count, 0)
+            self.assertEqual(m1_only_layer.w4a4_tiled_fallback_count, 1)
+            self.assertTrue(torch.allclose(
+                m16_fallback.float(), expected.float(), atol=0.02, rtol=0.01
+            ))
+            m128_inputs = torch.randn(
+                128, 32, device="cuda", dtype=torch.bfloat16
+            )
+            m128 = cuda_layer(m128_inputs)
+            m128_expected = tiled_layer(m128_inputs)
+            self.assertEqual(
+                cuda_layer.w4a4_cuda_mma_large_m_staged_dispatch_count, 1
+            )
+            self.assertEqual(
+                cuda_layer.w4a4_cuda_mma_m128_staged_dispatch_count, 1
+            )
+            self.assertEqual(cuda_layer.w4a4_cuda_mma_dispatch_count, 4)
+            self.assertTrue(torch.allclose(
+                m128.float(), m128_expected.float(), atol=0.02, rtol=0.01
+            ))
+            for rows, expected_count in ((32, 2), (64, 3)):
+                with self.subTest(rows=rows):
+                    large_m_inputs = m128_inputs[:rows]
+                    large_m = cuda_layer(large_m_inputs)
+                    large_m_expected = tiled_layer(large_m_inputs)
+                    self.assertEqual(
+                        cuda_layer.w4a4_cuda_mma_large_m_staged_dispatch_count,
+                        expected_count,
+                    )
+                    self.assertTrue(torch.allclose(
+                        large_m.float(), large_m_expected.float(),
+                        atol=0.02, rtol=0.01,
+                    ))
+            chunked_inputs = m128_inputs[:40]
+            chunked = cuda_layer(chunked_inputs)
+            chunked_expected = tiled_layer(chunked_inputs)
+            self.assertEqual(
+                cuda_layer.w4a4_cuda_mma_chunked_staged_dispatch_count, 1
+            )
+            self.assertTrue(torch.allclose(
+                chunked.float(), chunked_expected.float(), atol=0.04, rtol=0.01
+            ))
+            sensitive_chunked = sensitive_layer(chunked_inputs)
+            self.assertEqual(
+                sensitive_layer.w4a4_cuda_mma_chunked_staged_dispatch_count, 0
+            )
+            self.assertTrue(torch.allclose(
+                sensitive_chunked.float(), chunked_expected.float(),
+                atol=0.02, rtol=0.01,
+            ))
+            sensitive_m128 = sensitive_layer(m128_inputs)
+            self.assertEqual(
+                sensitive_layer.w4a4_cuda_mma_m128_staged_dispatch_count, 0
+            )
+            self.assertEqual(sensitive_layer.w4a4_tiled_fallback_count, 3)
+            self.assertTrue(torch.allclose(
+                sensitive_m128.float(), m128_expected.float(),
+                atol=0.02, rtol=0.01,
+            ))
+            m1_only = m1_only_layer(inputs[:1])
+            self.assertEqual(m1_only_layer.w4a4_cuda_mma_m1_dispatch_count, 1)
+            self.assertEqual(m1_only_layer.w4a4_tiled_fallback_count, 1)
+            self.assertTrue(torch.isfinite(m1_only).all())
 
 
 if __name__ == "__main__":
