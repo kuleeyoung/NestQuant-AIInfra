@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "seed": 20261102,
+  "capacity": 2,
+  "max_cache_len": 96,
+  "warmup_requests": 2,
+  "warmup_all_prompt_lengths": false,
+  "warmup_prompt_lengths": [64],
+  "repetitions": 20,
+  "policies": [
+    {
+      "name": "transactional_multi_page_2_0",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 0,
+      "nqkv_ragged_multi_page_enabled": false
+    },
+    {
+      "name": "segmented_multi_page_2_0",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 0,
+      "nqkv_ragged_multi_page_enabled": true
+    }
+  ],
+  "profiles": [
+    {
+      "name": "four_page_prefill_fixed",
+      "request_count": 4,
+      "arrival_mode": "fixed",
+      "arrival_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [64, 64],
+      "output_length": [2, 3],
+      "max_cache_len": 96
+    }
+  ],
+  "claim_boundary": "Same-process paired A/B for four-page NQKV prefill with identical requests, explicit shape warmup and alternating policy order; token-ID engine only."
+}

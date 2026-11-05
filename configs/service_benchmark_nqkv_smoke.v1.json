@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "seed": 20261101,
+  "capacity": 2,
+  "max_cache_len": 32,
+  "warmup_requests": 2,
+  "warmup_all_prompt_lengths": false,
+  "repetitions": 1,
+  "policies": [
+    {"name": "smoke_2_0", "min_prefill_batch": 2, "max_wait_steps": 0}
+  ],
+  "profiles": [
+    {
+      "name": "smoke_fixed",
+      "request_count": 4,
+      "arrival_mode": "fixed",
+      "arrival_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [4, 8],
+      "output_length": [2, 3],
+      "max_cache_len": 32
+    }
+  ],
+  "claim_boundary": "Single-process synthetic token-ID smoke run without tokenizer, network I/O, random sampling, multi-GPU execution, or production SLA claims. One repetition is functional evidence only, not a stable performance comparison."
+}

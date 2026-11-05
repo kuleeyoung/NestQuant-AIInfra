@@ -1,0 +1,29 @@
+{
+  "status": "completed",
+  "protocol": "nqkv-gpu-k0-v1",
+  "device": "NVIDIA GeForce RTX 5070",
+  "page_shape": [
+    16,
+    8,
+    64
+  ],
+  "context_pages": 8,
+  "context_tokens": 128,
+  "query_heads": 32,
+  "packed_bytes_per_page": 9728,
+  "bf16_bytes_per_page": 32768,
+  "resident_reduction_percent": 70.3125,
+  "gpu_quantize_pack_us_per_page": 787.6083374023438,
+  "triton_decode_us_per_page": 59.21775817871094,
+  "k0_paged_attention_us": 4093.5025024414062,
+  "k1_fused_attention_us": 90.12144088745117,
+  "k1_speedup_over_k0": 45.422071175644064,
+  "k1_cuda_graph_us": 67.53520011901855,
+  "cuda_graph_speedup_over_k1_eager": 1.3344365712788067,
+  "notes": [
+    "K0 decodes one packed page at a time and uses FP32 online softmax.",
+    "Timings include temporary output allocation and Python page dispatch.",
+    "This is a diagnostic baseline, not a fused-attention performance claim.",
+    "K1 fuses packed page decode with page-local attention and reduces page statistics in a second kernel."
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "seed": 20261102,
+  "capacity": 2,
+  "max_cache_len": 32,
+  "warmup_requests": 2,
+  "warmup_all_prompt_lengths": false,
+  "couple_profile_seeds": true,
+  "repetitions": 5,
+  "policies": [
+    {"name": "paired_2_0", "min_prefill_batch": 2, "max_wait_steps": 0}
+  ],
+  "profiles": [
+    {
+      "name": "decode_fixed_p8_o8",
+      "request_count": 2,
+      "arrival_mode": "burst",
+      "burst_size": 2,
+      "burst_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [8, 8],
+      "output_length": [8, 8],
+      "max_cache_len": 32
+    },
+    {
+      "name": "boundary_fixed_p15_o3",
+      "request_count": 2,
+      "arrival_mode": "burst",
+      "burst_size": 2,
+      "burst_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [15, 15],
+      "output_length": [3, 3],
+      "max_cache_len": 32
+    }
+  ],
+  "claim_boundary": "Fixed-shape paired-seed local A/B for stage attribution. It excludes tokenizer/network I/O and is not a production SLA."
+}

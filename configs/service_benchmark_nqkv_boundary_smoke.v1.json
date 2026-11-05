@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "seed": 20261102,
+  "capacity": 2,
+  "max_cache_len": 32,
+  "warmup_requests": 2,
+  "warmup_all_prompt_lengths": false,
+  "repetitions": 1,
+  "policies": [
+    {"name": "boundary_2_0", "min_prefill_batch": 2, "max_wait_steps": 0}
+  ],
+  "profiles": [
+    {
+      "name": "boundary_fixed",
+      "request_count": 2,
+      "arrival_mode": "burst",
+      "burst_size": 2,
+      "burst_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [15, 15],
+      "output_length": [3, 3],
+      "max_cache_len": 32
+    }
+  ],
+  "claim_boundary": "Single-process two-request boundary smoke. It verifies NQKV Graph-to-eager page transitions and is not stable performance or production-SLA evidence."
+}

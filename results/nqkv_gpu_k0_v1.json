@@ -1,0 +1,24 @@
+{
+  "status": "completed",
+  "protocol": "nqkv-gpu-k0-v1",
+  "device": "NVIDIA GeForce RTX 5070",
+  "page_shape": [
+    16,
+    8,
+    64
+  ],
+  "context_pages": 8,
+  "context_tokens": 128,
+  "query_heads": 32,
+  "packed_bytes_per_page": 9728,
+  "bf16_bytes_per_page": 32768,
+  "resident_reduction_percent": 70.3125,
+  "gpu_quantize_pack_us_per_page": 792.7553558349609,
+  "triton_decode_us_per_page": 52.58431911468506,
+  "k0_paged_attention_us": 3864.0011596679688,
+  "notes": [
+    "K0 decodes one packed page at a time and uses FP32 online softmax.",
+    "Timings include temporary output allocation and Python page dispatch.",
+    "This is a diagnostic baseline, not a fused-attention performance claim."
+  ]
+}

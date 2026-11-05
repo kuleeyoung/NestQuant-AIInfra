@@ -157,6 +157,31 @@ def validate_benchmark_config(config: dict) -> None:
                 raise ValueError(f"{field} must be an integer")
         if policy["min_prefill_batch"] < 1 or policy["max_wait_steps"] < 0:
             raise ValueError("invalid admission policy")
+        ragged_enabled = policy.get("nqkv_ragged_subpage_enabled")
+        if ragged_enabled is not None and not isinstance(ragged_enabled, bool):
+            raise ValueError("nqkv_ragged_subpage_enabled must be bool when present")
+        full_page_enabled = policy.get("nqkv_ragged_full_page_pack_enabled")
+        if full_page_enabled is not None and not isinstance(full_page_enabled, bool):
+            raise ValueError(
+                "nqkv_ragged_full_page_pack_enabled must be bool when present"
+            )
+        cross_page_enabled = policy.get("nqkv_ragged_cross_page_enabled")
+        if cross_page_enabled is not None and not isinstance(cross_page_enabled, bool):
+            raise ValueError(
+                "nqkv_ragged_cross_page_enabled must be bool when present"
+            )
+        multi_page_enabled = policy.get("nqkv_ragged_multi_page_enabled")
+        if multi_page_enabled is not None and not isinstance(multi_page_enabled, bool):
+            raise ValueError(
+                "nqkv_ragged_multi_page_enabled must be bool when present"
+            )
+        batched_pack_enabled = policy.get("nqkv_multi_page_batched_pack_enabled")
+        if batched_pack_enabled is not None and not isinstance(
+            batched_pack_enabled, bool
+        ):
+            raise ValueError(
+                "nqkv_multi_page_batched_pack_enabled must be bool when present"
+            )
     for index, profile in enumerate(profiles):
         if profile.get("max_cache_len") != config["max_cache_len"]:
             raise ValueError("profile max_cache_len must match the runner max_cache_len")

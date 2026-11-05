@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "seed": 20261102,
+  "capacity": 2,
+  "max_cache_len": 96,
+  "warmup_requests": 2,
+  "warmup_all_prompt_lengths": false,
+  "warmup_prompt_lengths": [64],
+  "warmup_each_policy": true,
+  "repetitions": 20,
+  "policies": [
+    {
+      "name": "segmented_per_slot_pack_2_0",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 0,
+      "nqkv_ragged_multi_page_enabled": true,
+      "nqkv_multi_page_batched_pack_enabled": false
+    },
+    {
+      "name": "segmented_batched_pack_2_0",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 0,
+      "nqkv_ragged_multi_page_enabled": true,
+      "nqkv_multi_page_batched_pack_enabled": true
+    }
+  ],
+  "profiles": [
+    {
+      "name": "four_page_prefill_fixed",
+      "request_count": 4,
+      "arrival_mode": "fixed",
+      "arrival_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [64, 64],
+      "output_length": [2, 3],
+      "max_cache_len": 96
+    }
+  ],
+  "claim_boundary": "Same-process paired A/B isolating per-slot versus batched NQKV page encoding inside the same segmented four-page prefill path; each policy shape is explicitly warmed; token-ID engine only."
+}

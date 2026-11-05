@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "seed": 20261102,
+  "capacity": 2,
+  "max_cache_len": 32,
+  "warmup_requests": 4,
+  "warmup_all_prompt_lengths": true,
+  "repetitions": 20,
+  "policies": [
+    {
+      "name": "transactional_cross_page_2_0",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 0,
+      "nqkv_ragged_cross_page_enabled": false
+    },
+    {
+      "name": "segmented_cross_page_2_0",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 0,
+      "nqkv_ragged_cross_page_enabled": true
+    }
+  ],
+  "profiles": [
+    {
+      "name": "one_boundary_prefill_fixed",
+      "request_count": 4,
+      "arrival_mode": "fixed",
+      "arrival_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [20, 20],
+      "output_length": [2, 3],
+      "max_cache_len": 32
+    }
+  ],
+  "claim_boundary": "Same-process paired A/B for one-boundary NQKV prefill with identical requests and alternating policy order; token-ID engine only, without tokenizer or network I/O."
+}

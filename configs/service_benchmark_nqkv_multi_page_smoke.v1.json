@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "seed": 20261102,
+  "capacity": 2,
+  "max_cache_len": 96,
+  "warmup_requests": 2,
+  "warmup_all_prompt_lengths": false,
+  "warmup_prompt_lengths": [32, 48, 64, 80],
+  "repetitions": 1,
+  "policies": [
+    {
+      "name": "segmented_multi_page_2_0",
+      "min_prefill_batch": 2,
+      "max_wait_steps": 0,
+      "nqkv_ragged_multi_page_enabled": true
+    }
+  ],
+  "profiles": [
+    {
+      "name": "prompt_32",
+      "request_count": 2,
+      "arrival_mode": "burst",
+      "burst_size": 2,
+      "burst_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [32, 32],
+      "output_length": [2, 2],
+      "max_cache_len": 96
+    },
+    {
+      "name": "prompt_48",
+      "request_count": 2,
+      "arrival_mode": "burst",
+      "burst_size": 2,
+      "burst_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [48, 48],
+      "output_length": [2, 2],
+      "max_cache_len": 96
+    },
+    {
+      "name": "prompt_64",
+      "request_count": 2,
+      "arrival_mode": "burst",
+      "burst_size": 2,
+      "burst_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [64, 64],
+      "output_length": [2, 2],
+      "max_cache_len": 96
+    },
+    {
+      "name": "prompt_80",
+      "request_count": 2,
+      "arrival_mode": "burst",
+      "burst_size": 2,
+      "burst_interval_ms": 10,
+      "length_mode": "uniform",
+      "prompt_length": [80, 80],
+      "output_length": [2, 2],
+      "max_cache_len": 96
+    }
+  ],
+  "claim_boundary": "Correctness-first Llama-3.2-1B multi-page NQKV prefill smoke for two to five full pages; token-ID engine only."
+}

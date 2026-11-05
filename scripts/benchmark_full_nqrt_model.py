@@ -1,4 +1,4 @@
-"""End-to-end BF16/scalar-packed/Tensor-Core-packed Llama benchmark."""
+"""End-to-end BF16, packed-W4, and packed-W4A4 Llama benchmark."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import gc
 import json
 from pathlib import Path
+import platform
 import statistics
 import sys
 import time
@@ -19,6 +20,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from nestquant.core.model_checkpoint_file import NQMCFileReader
 from nestquant.models.fused_linear import convert_linears_to_fused_nqrt_
+import nestquant.models.fused_linear as fused_linear_module
+from nestquant.runtime.cuda_w4a4_mma import linear_packed_w4a4_gemv_m1_legacy
 
 
 PROJECTION_SUFFIXES = (
@@ -30,6 +33,8 @@ PROJECTION_SUFFIXES = (
     "mlp.up_proj",
     "mlp.down_proj",
 )
+ACTIVATION_BETAS = tuple(value / 14 for value in (3.47, 4.74, 6.90, 18.11))
+INPUT_SEED = 20261025
 
 
 def _stats(values: list[float]) -> dict[str, float]:
@@ -87,6 +92,39 @@ def _packed_bytes(model) -> int:
         int(getattr(module, "packed_device_bytes", 0))
         for module in model.modules()
     )
+
+
+def _w4a4_dispatch_counts(model) -> dict[str, int]:
+    return {
+        "cuda_mma_m16": sum(
+            int(getattr(module, "w4a4_cuda_mma_m16_dispatch_count", 0))
+            for module in model.modules()
+        ),
+        "cuda_mma_small_m": sum(
+            int(getattr(module, "w4a4_cuda_mma_small_m_dispatch_count", 0))
+            for module in model.modules()
+        ),
+        "cuda_mma_m128_staged": sum(
+            int(getattr(module, "w4a4_cuda_mma_m128_staged_dispatch_count", 0))
+            for module in model.modules()
+        ),
+        "cuda_mma_large_m_staged": sum(
+            int(getattr(module, "w4a4_cuda_mma_large_m_staged_dispatch_count", 0))
+            for module in model.modules()
+        ),
+        "cuda_mma_chunked_staged": sum(
+            int(getattr(module, "w4a4_cuda_mma_chunked_staged_dispatch_count", 0))
+            for module in model.modules()
+        ),
+        "cuda_gemv_m1": sum(
+            int(getattr(module, "w4a4_cuda_mma_m1_dispatch_count", 0))
+            for module in model.modules()
+        ),
+        "tiled_fallback": sum(
+            int(getattr(module, "w4a4_tiled_fallback_count", 0))
+            for module in model.modules()
+        ),
+    }
 
 
 def _run_prefill(model, input_ids: torch.Tensor, use_cache: bool):
@@ -160,6 +198,7 @@ def _benchmark_path(
     decode_tokens: int,
     offline: bool,
     names: tuple[str, ...],
+    tiled_fallback_names: tuple[str, ...] = (),
 ) -> dict[str, object]:
     load_started = time.perf_counter()
     model = _load_model(model_id, revision, offline)
@@ -174,6 +213,13 @@ def _benchmark_path(
             output_dtype=torch.bfloat16,
             group_qkv=False,
             compute_backend=mode,
+            activation_q=14,
+            activation_betas=(
+                ACTIVATION_BETAS if mode.startswith("packed_w4a4") else None
+            ),
+            w4a4_tiled_fallback_names=(
+                tiled_fallback_names if mode.startswith("packed_w4a4") else ()
+            ),
         )
 
     with torch.inference_mode():
@@ -216,6 +262,7 @@ def _benchmark_path(
         "cuda_peak_allocated_bytes_from_process_start": peak_increment,
         "cuda_model_and_runtime_allocated_bytes_after_warmup": resident_allocated,
         "packed_device_bytes_after_warmup": _packed_bytes(model),
+        "w4a4_dispatch_counts": _w4a4_dispatch_counts(model),
         "replaced_linear_count": (
             0 if conversion is None else len(conversion.replaced_linear_names)
         ),
@@ -236,8 +283,25 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=10)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument(
+        "--tiled-fallback-projections", nargs="+", default=(),
+        choices=PROJECTION_SUFFIXES,
+        help="Projection suffixes forced to tiled Triton in packed CUDA modes.",
+    )
+    parser.add_argument(
+        "--tiled-fallback-names", nargs="+", default=(),
+        help="Exact Linear module names forced to tiled Triton in packed CUDA modes.",
+    )
+    parser.add_argument(
+        "--m1-kernel", choices=("production", "legacy"), default="production",
+        help="Select the M=1 CUDA kernel for controlled end-to-end A/B tests.",
+    )
+    parser.add_argument(
         "--modes", nargs="+",
-        choices=("bf16", "scalar", "tensor_core_dot", "cuda_mma_j2"),
+        choices=(
+            "bf16", "scalar", "tensor_core_dot", "cuda_mma_j2",
+            "packed_w4a4", "packed_w4a4_tiled", "packed_w4a4_cuda_mma",
+            "packed_w4a4_cuda_gemv_m1",
+        ),
                         default=["bf16", "scalar", "tensor_core_dot"])
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -247,6 +311,10 @@ def main() -> None:
         parser.error("batch sizes must be positive")
     if args.decode_tokens < 1 or args.repeats < 1:
         parser.error("decode-tokens and repeats must be positive")
+    if args.m1_kernel == "legacy":
+        fused_linear_module.linear_packed_w4a4_gemv_m1 = (
+            linear_packed_w4a4_gemv_m1_legacy
+        )
 
     reader = NQMCFileReader(args.checkpoint, verify_checksum=False)
     model_id = reader.model_metadata.get("model_id")
@@ -257,12 +325,21 @@ def main() -> None:
     # Load once only to discover the exact layer count and module names.
     probe = _load_model(model_id, revision, args.offline)
     names = _projection_names(probe, reader)
+    tiled_fallback_names = tuple(dict.fromkeys([
+        name for name in names
+        if any(name.endswith(suffix) for suffix in args.tiled_fallback_projections)
+    ] + list(args.tiled_fallback_names)))
+    unknown_fallback_names = sorted(set(tiled_fallback_names) - set(names))
+    if unknown_fallback_names:
+        parser.error(
+            "unknown --tiled-fallback-names: " + ", ".join(unknown_fallback_names)
+        )
     vocab_size = int(probe.config.vocab_size)
     del probe
     gc.collect()
     torch.cuda.empty_cache()
 
-    generator = torch.Generator(device="cuda").manual_seed(20261025)
+    generator = torch.Generator(device="cuda").manual_seed(INPUT_SEED)
     all_results = []
     for batch_size in args.batch_size:
         for sequence_length in args.sequence_length:
@@ -287,6 +364,7 @@ def main() -> None:
                     decode_tokens=args.decode_tokens,
                     offline=args.offline,
                     names=names,
+                    tiled_fallback_names=tiled_fallback_names,
                 )
                 logits = result.pop("first_logits")
                 if reference_logits is None:
@@ -314,13 +392,27 @@ def main() -> None:
         "model_id": model_id,
         "model_revision": revision,
         "device_name": torch.cuda.get_device_name(),
+        "environment": {
+            "python": platform.python_version(),
+            "pytorch": torch.__version__,
+            "cuda_runtime": torch.version.cuda,
+            "triton": __import__("triton").__version__,
+            "transformers": __import__("transformers").__version__,
+            "platform": platform.platform(),
+        },
+        "input_seed": INPUT_SEED,
         "sequence_lengths": args.sequence_length,
         "batch_sizes": args.batch_size,
         "decode_tokens": args.decode_tokens,
         "repeats": args.repeats,
         "modes": args.modes,
+        "m1_kernel": args.m1_kernel,
+        "tiled_fallback_projections": list(args.tiled_fallback_projections),
+        "tiled_fallback_names": list(tiled_fallback_names),
         "quantized_projection_count": len(names),
         "quantized_projection_names": list(names),
+        "activation_q": 14,
+        "activation_betas": list(ACTIVATION_BETAS),
         "results": all_results,
         "claim_boundary": (
             "This is single-GPU end-to-end inference evidence for the tested "
